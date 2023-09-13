@@ -5,6 +5,64 @@
 #include "defs.h"
 
 volatile static int started = 0;
+const char* const NAME = "\
+     ███\n\
+     ██     ██████\n\
+     █      ██    █\n\
+     █     ███    █\n\
+     █    ███    ██\n\
+      ██████    ███\n\
+     █            █\n\
+     ██████████████\n\
+     █            █\n\
+     █            █\n\
+     █      ██    █\n\
+     █            █\n\
+     ███        ███\n\
+          ████\n\
+       ██████████\n\
+     ██          █\n\
+     █            █\n\
+     █            █\n\
+      ███      ███\n\
+        ████████\n\
+     █            █\n\
+     ██████████████\n\
+               ████\n\
+            ████\n\
+         █████\n\
+      ████        █\n\
+     ██████████████\n\
+          ████\n\
+       ██████████\n\
+     ███         █\n\
+     █            █\n\
+     █            █\n\
+      ██████    ███\n\
+        ████\n\
+                ███\n\
+                  █\n\
+     █            █\n\
+     ██████████████\n\
+     █            █\n\
+                  █\n\
+                ███\n\
+     █\n\
+     ██\n\
+         ██\n\
+         █  ██\n\
+         █    █████\n\
+         ██████\n\
+     ███████\n\
+     ███\n\
+     █\n\
+     █            █\n\
+     ██████████████\n\
+     █            █\n\
+     █            █\n\
+     █      ██    █\n\
+     █            █\n\
+     ███        ███";
 
 // start() jumps here in supervisor mode on all CPUs.
 void
@@ -16,6 +74,10 @@ main()
     printf("\n");
     printf("xv6 kernel is booting\n");
     printf("\n");
+    printf("SNUOS2023\n");  // PA1
+    printf("2018-15515\n");
+    printf("%s\n", NAME);
+    print("\n");
     kinit();         // physical page allocator
     kvminit();       // create kernel page table
     kvminithart();   // turn on paging
