@@ -77,7 +77,7 @@ main()
     printf("SNUOS2023\n");  // PA1
     printf("2018-15515\n");
     printf("%s\n", NAME);
-    print("\n");
+    printf("\n");
     kinit();         // physical page allocator
     kvminit();       // create kernel page table
     kvminithart();   // turn on paging
