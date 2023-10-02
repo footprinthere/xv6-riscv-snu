@@ -681,3 +681,29 @@ procdump(void)
     printf("\n");
   }
 }
+
+// PA2
+int n_syscall;
+int n_interrupt;
+int n_timer;
+struct spinlock ntraps_lock;
+
+void ntraps_init(void) {
+  n_syscall = 0;
+  n_interrupt = 0;
+  n_timer = 0;
+  initlock(&ntraps_lock, "ntraps");
+}
+
+int ntraps(int type) {
+  switch (type) {
+    case N_SYSCALL:
+      return n_syscall;
+    case N_INTERRUPT:
+      return n_interrupt;
+    case N_TIMER:
+      return n_timer;
+    default:
+      return -1;
+  }
+}

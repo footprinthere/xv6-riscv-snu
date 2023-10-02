@@ -41,5 +41,7 @@ main()
     plicinithart();   // ask PLIC for device interrupts
   }
 
+  ntraps_init();      // counters and lock for ntraps syscall
+
   scheduler();        
 }

@@ -89,3 +89,12 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_ntraps(void)
+{
+  int type;
+
+  argint(0, &type);
+  return ntraps(type);
+}
