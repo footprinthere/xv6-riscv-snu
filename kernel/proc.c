@@ -696,14 +696,23 @@ void ntraps_init(void) {
 }
 
 int ntraps(int type) {
+  int output = 0;
+
+  acquire(&ntraps_lock);
   switch (type) {
     case N_SYSCALL:
-      return n_syscall;
+      output = n_syscall;
+      break;
     case N_INTERRUPT:
-      return n_interrupt;
+      output = n_interrupt;
+      break;
     case N_TIMER:
-      return n_timer;
+      output = n_timer;
+      break;
     default:
-      return -1;
+      output = -1;
   }
+  release(&ntraps_lock);
+
+  return output;
 }
