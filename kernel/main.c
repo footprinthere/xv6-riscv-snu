@@ -11,6 +11,7 @@ void
 main()
 {
   if(cpuid() == 0){
+    ntraps_init();   // counters and lock for ntraps syscall
     consoleinit();
     printfinit();
     printf("\n");
@@ -40,8 +41,6 @@ main()
     trapinithart();   // install kernel trap vector
     plicinithart();   // ask PLIC for device interrupts
   }
-
-  ntraps_init();      // counters and lock for ntraps syscall
 
   scheduler();        
 }
