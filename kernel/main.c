@@ -11,7 +11,7 @@ void
 main()
 {
   if(cpuid() == 0){
-    ntraps_init();   // counters and lock for ntraps syscall
+    ntrapsinit();   // counters and lock for ntraps syscall
     consoleinit();
     printfinit();
     printf("\n");

@@ -136,6 +136,11 @@ syscall(void)
   int num;
   struct proc *p = myproc();
 
+  // 이 부분을 맨 밑에 둬서 ntraps 호출 자체가 count에 반영 안 됐었음
+  acquire(&ntrapslock);
+  n_syscall++;  // increase counter for ntraps
+  release(&ntrapslock);
+
   num = p->trapframe->a7;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     // Use num to lookup the system call function for num, call it,
@@ -146,8 +151,4 @@ syscall(void)
             p->pid, p->name, num);
     p->trapframe->a0 = -1;
   }
-
-  acquire(&ntraps_lock);
-  n_syscall++;  // increase counter for ntraps
-  release(&ntraps_lock);
 }

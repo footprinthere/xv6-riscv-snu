@@ -179,13 +179,14 @@ devintr()
 {
   uint64 scause = r_scause();
 
-  acquire(&ntraps_lock);
-  n_interrupt++;  // increase counter for ntraps
-  release(&ntraps_lock);
-
   if((scause & 0x8000000000000000L) &&
      (scause & 0xff) == 9){
     // this is a supervisor external interrupt, via PLIC.
+
+    // 여기 두나 if 바깥에 두나 똑같이 PASSED?
+    acquire(&ntrapslock);
+    n_interrupt++;  // increase counter for ntraps
+    release(&ntrapslock);
 
     // irq indicates which device interrupted.
     int irq = plic_claim();
@@ -209,9 +210,9 @@ devintr()
     // software interrupt from a machine-mode timer interrupt,
     // forwarded by timervec in kernelvec.S.
 
-    acquire(&ntraps_lock);
+    acquire(&ntrapslock);
     n_timer++;  // increase counter for ntraps
-    release(&ntraps_lock);
+    release(&ntrapslock);
 
     if(cpuid() == 0){
       clockintr();

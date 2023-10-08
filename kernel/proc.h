@@ -105,15 +105,3 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
-
-// PA2
-// Constants for ntraps
-#define N_SYSCALL     0
-#define N_INTERRUPT   1
-#define N_TIMER       2
-
-// Global variables for ntraps
-extern int n_syscall;
-extern int n_interrupt;
-extern int n_timer;
-extern struct spinlock ntraps_lock;

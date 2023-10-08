@@ -106,8 +106,20 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
-void            ntraps_init(void);
+void            ntrapsinit(void);
 int             ntraps(int);
+
+// PA2
+// Constants for ntraps
+#define N_SYSCALL     0
+#define N_INTERRUPT   1
+#define N_TIMER       2
+
+// Global variables for ntraps
+extern struct spinlock ntrapslock;
+extern uint n_syscall;
+extern uint n_interrupt;
+extern uint n_timer;
 
 // swtch.S
 void            swtch(struct context*, struct context*);

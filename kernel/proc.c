@@ -683,36 +683,33 @@ procdump(void)
 }
 
 // PA2
-int n_syscall;
-int n_interrupt;
-int n_timer;
-struct spinlock ntraps_lock;
+struct spinlock ntrapslock;
+uint n_syscall = 0;
+uint n_interrupt = 0;
+uint n_timer = 0;
 
-void ntraps_init(void) {
-  n_syscall = 0;
-  n_interrupt = 0;
-  n_timer = 0;
-  initlock(&ntraps_lock, "ntraps");
+void ntrapsinit(void) {
+  initlock(&ntrapslock, "ntraps");
 }
 
 int ntraps(int type) {
   int output = 0;
 
-  acquire(&ntraps_lock);
-  switch (type) {
-    case N_SYSCALL:
-      output = n_syscall;
-      break;
-    case N_INTERRUPT:
-      output = n_interrupt;
-      break;
-    case N_TIMER:
-      output = n_timer;
-      break;
-    default:
-      output = -1;
+  if (type == N_SYSCALL) {
+    acquire(&ntrapslock);
+    output = n_syscall;
+    release(&ntrapslock);
+  } else if (type == N_INTERRUPT) {
+    acquire(&ntrapslock);
+    output = n_interrupt;
+    release(&ntrapslock);
+  } else if (type == N_TIMER) {
+    acquire(&ntrapslock);
+    output = n_timer;
+    release(&ntrapslock);
+  } else {
+    output = -1;
   }
-  release(&ntraps_lock);
 
   return output;
 }
