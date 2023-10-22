@@ -17,6 +17,9 @@ struct spinlock pid_lock;
 
 #ifdef SNU
 #define NICE_TO_PRIO(n)   ((n) + 3)
+#define NULL              0
+#define FALSE             0
+#define TRUE              1
 int prio_ratio[] = {1, 2, 3, 5, 7, 9, 11};
 #endif
 
@@ -176,6 +179,7 @@ freeproc(struct proc *p)
   p->state = UNUSED;
 #ifdef SNU
   p->ticks = 0;
+  p->is_last_run = FALSE;
 #endif
 }
 
@@ -440,6 +444,70 @@ wait(uint64 addr)
     // Wait for a child to exit.
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
+}
+
+// PA3
+
+int _virtual_deadline(struct proc* p) {
+  return p->ticks + prio_ratio[NICE_TO_PRIO(p->nice)];
+}
+
+// Returns 1 if p1 should be scheduled before p2. Otherwise returns -1.
+int _compare_priority(struct proc* p1, struct proc* p2) {
+  // virtual deadline이 작은 것 우선
+  int p1_deadline = _virtual_deadline(p1);
+  int p2_deadline = _virtual_deadline(p2);
+  if (p1_deadline < p2_deadline) {
+    return 1;
+  } else if (p1_deadline > p2_deadline) {
+    return -1;
+  }
+
+  // 직전에 실행된 process 우선 (for efficiency)
+  if (p1->is_last_run) {
+    return 1;
+  } else if (p2->is_last_run) {
+    return -1;
+  }
+
+  // nice가 작은 것 우선
+  if (p1->nice < p2->nice) {
+    return 1;
+  } else if (p1->nice > p2->nice) {
+    return -1;
+  }
+
+  // pid가 작은 것 우선
+  if (p1->pid < p2->pid) {
+    return 1;
+  } else {
+    return -1;
+  }
+}
+
+// Selects next process to run
+struct proc* _select_next(void) {
+  struct proc* next = NULL;
+
+  for (struct proc* p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state != RUNNABLE) {
+      release(&p->lock);
+      continue;
+    }
+
+    if (next == NULL) {
+      next = p;
+    } else {
+      int cmp = _compare_priority(next, p);
+      if (cmp == -1) {
+        next = p;
+      }
+    }
+    release(&p->lock);
+  }
+
+  return next;
 }
 
 // Per-CPU process scheduler.
