@@ -510,6 +510,7 @@ struct proc* _select_next(void) {
   return next;
 }
 
+#ifdef SNU
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -524,7 +525,9 @@ scheduler(void)
   struct cpu *c = mycpu();
 
   struct proc* last_proc = c->proc;
-  last_proc->is_last_run = TRUE;
+  if (last_proc != NULL) {
+    last_proc->is_last_run = TRUE;
+  }
   c->proc = NULL;
 
   for (;;) {
@@ -544,43 +547,48 @@ scheduler(void)
 
     // Process is done running for now.
     // It should have changed its p->state before coming back.
-    last_proc->is_last_run = FALSE;
+    if (last_proc != NULL) {
+      last_proc->is_last_run = FALSE;
+    }
     last_proc = c->proc;
     last_proc->is_last_run = TRUE;
     c->proc = NULL;
   }
 }
+#else
+// ORIGINAL IMPLEMENTATION
+void
+scheduler(void)
+{
+  printf("original scheduler started\n");
 
-// // ORIGINAL IMPLEMENTATION
-// void
-// scheduler(void)
-// {
-//   struct proc *p;
-//   struct cpu *c = mycpu();
+  struct proc *p;
+  struct cpu *c = mycpu();
   
-//   c->proc = 0;
-//   for(;;){
-//     // Avoid deadlock by ensuring that devices can interrupt.
-//     intr_on();
+  c->proc = 0;
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
 
-//     for(p = proc; p < &proc[NPROC]; p++) {
-//       acquire(&p->lock);
-//       if(p->state == RUNNABLE) {
-//         // Switch to chosen process.  It is the process's job
-//         // to release its lock and then reacquire it
-//         // before jumping back to us.
-//         p->state = RUNNING;
-//         c->proc = p;
-//         swtch(&c->context, &p->context);
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
 
-//         // Process is done running for now.
-//         // It should have changed its p->state before coming back.
-//         c->proc = 0;
-//       }
-//       release(&p->lock);
-//     }
-//   }
-// }
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+      release(&p->lock);
+    }
+  }
+}
+#endif
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
