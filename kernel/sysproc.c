@@ -94,14 +94,17 @@ sys_uptime(void)
 uint64
 sys_nice(void)
 {
-
   // PA3: Fill here!
+  int pid, value;
+  argint(0, &pid);
+  argint(1, &value);
 
+  if (pid < 0)
+    return -1;
+  if (value < -3 || value > 3)
+    return -1;
 
-
-
-
-  return 0;
+  return nice(pid, value);
 }
 
 uint64
