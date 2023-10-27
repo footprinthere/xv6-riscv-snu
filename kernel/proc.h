@@ -97,6 +97,7 @@ struct proc {
   // Add more if needed.
   int nice;                    // Nice value (-3 <= nice <= 3)
   int ticks;                   // Total number of ticks used
+  int global_ticks;            // Total number of ticks used by all processes
   int is_last_run;             // Is this process the last run process?
 #endif
 

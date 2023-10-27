@@ -179,6 +179,7 @@ freeproc(struct proc *p)
   p->state = UNUSED;
 #ifdef SNU
   p->ticks = 0;
+  p->global_ticks = 0;
   p->is_last_run = FALSE;
 #endif
 }
@@ -449,7 +450,8 @@ wait(uint64 addr)
 // PA3
 
 int _virtual_deadline(struct proc* p) {
-  return p->ticks + prio_ratio[NICE_TO_PRIO(p->nice)];
+  int deadline = p->global_ticks + prio_ratio[NICE_TO_PRIO(p->nice)];
+  return deadline;
 }
 
 // Returns 1 if p1 should be scheduled before p2. Otherwise returns -1.
@@ -507,6 +509,7 @@ struct proc* _select_next(void) {
     release(&p->lock);
   }
 
+  // Return NULL if no runnable process found
   return next;
 }
 
@@ -524,19 +527,16 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
 
-  struct proc* last_proc = c->proc;
-  if (last_proc != NULL) {
-    last_proc->is_last_run = TRUE;
-  }
-  c->proc = NULL;
+  struct proc* last_proc = NULL;
 
   for (;;) {
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
     p = _select_next();
-    if (p == NULL)
+    if (p == NULL) {
       continue; // no runnable process found
+    }
     
     // Switch to chosen process.  It is the process's job
     // to release its lock and then reacquire it
@@ -552,8 +552,13 @@ scheduler(void)
     if (last_proc != NULL) {
       last_proc->is_last_run = FALSE;
     }
-    last_proc = c->proc;
+    last_proc = p;
+    
     last_proc->is_last_run = TRUE;
+    acquire(&tickslock);
+    last_proc->global_ticks = ticks;
+    release(&tickslock);
+
     c->proc = NULL;
   }
 }
