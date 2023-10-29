@@ -501,7 +501,10 @@ struct proc* _select_next(void) {
     if (next == NULL) {
       next = p;
     } else {
+      acquire(&next->lock);
       int cmp = _compare_priority(next, p);
+      release(&next->lock);
+
       if (cmp == -1) {
         next = p;
       }
@@ -545,21 +548,22 @@ scheduler(void)
     p->state = RUNNING;
     c->proc = p;
     swtch(&c->context, &p->context);
-    release(&p->lock);
 
     // Process is done running for now.
     // It should have changed its p->state before coming back.
+    c->proc = NULL;
+
     if (last_proc != NULL) {
       last_proc->is_last_run = FALSE;
     }
-    last_proc = p;
-    
-    last_proc->is_last_run = TRUE;
-    acquire(&tickslock);
-    last_proc->global_ticks = ticks;
-    release(&tickslock);
 
-    c->proc = NULL;
+    p->is_last_run = TRUE;
+    acquire(&tickslock);
+    p->global_ticks = ticks;
+    release(&tickslock);
+    release(&p->lock);
+
+    last_proc = p;
   }
 }
 #else
@@ -567,8 +571,6 @@ scheduler(void)
 void
 scheduler(void)
 {
-  printf("original scheduler started\n");
-
   struct proc *p;
   struct cpu *c = mycpu();
   
@@ -830,6 +832,7 @@ nice(int pid, int value)
   acquire(&p->lock);
   p->nice = value;
   release(&p->lock);
+
   return 0;
 }
 
