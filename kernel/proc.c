@@ -179,8 +179,8 @@ freeproc(struct proc *p)
   p->state = UNUSED;
 #ifdef SNU
   p->ticks = 0;
-  p->global_ticks = 0;
   p->is_last_run = FALSE;
+  p->vd = 0;
 #endif
 }
 
@@ -325,6 +325,10 @@ fork(void)
 
   pid = np->pid;
 
+  // nice, vd 복사
+  np->nice = p->nice;
+  np->vd = p->vd;
+
   release(&np->lock);
 
   acquire(&wait_lock);
@@ -449,19 +453,19 @@ wait(uint64 addr)
 
 // PA3
 
-int _virtual_deadline(struct proc* p) {
-  int deadline = p->global_ticks + prio_ratio[NICE_TO_PRIO(p->nice)];
-  return deadline;
+void _update_vd(struct proc* p) {
+  acquire(&tickslock);
+  int vd = ticks + prio_ratio[NICE_TO_PRIO(p->nice)];
+  release(&tickslock);
+  p->vd = vd;
 }
 
 // Returns 1 if p1 should be scheduled before p2. Otherwise returns -1.
 int _compare_priority(struct proc* p1, struct proc* p2) {
   // virtual deadline이 작은 것 우선
-  int p1_deadline = _virtual_deadline(p1);
-  int p2_deadline = _virtual_deadline(p2);
-  if (p1_deadline < p2_deadline) {
+  if (p1->vd < p2-> vd) {
     return 1;
-  } else if (p1_deadline > p2_deadline) {
+  } else if (p1->vd > p2->vd) {
     return -1;
   }
 
@@ -530,7 +534,7 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
 
-  struct proc* last_proc = NULL;
+  struct proc* lastp = NULL;
 
   for (;;) {
     // Avoid deadlock by ensuring that devices can interrupt.
@@ -553,17 +557,14 @@ scheduler(void)
     // It should have changed its p->state before coming back.
     c->proc = NULL;
 
-    if (last_proc != NULL) {
-      last_proc->is_last_run = FALSE;
+    if (lastp != NULL) {
+      lastp->is_last_run = FALSE;
     }
 
     p->is_last_run = TRUE;
-    acquire(&tickslock);
-    p->global_ticks = ticks;
-    release(&tickslock);
     release(&p->lock);
 
-    last_proc = p;
+    lastp = p;
   }
 }
 #else
@@ -635,6 +636,7 @@ yield(void)
   p->state = RUNNABLE;
 #ifdef SNU
   p->ticks++;
+  _update_vd(p);
 #endif
   sched();
   release(&p->lock);
@@ -831,6 +833,9 @@ nice(int pid, int value)
 
   acquire(&p->lock);
   p->nice = value;
+  if (pid != myproc()->pid) {
+    _update_vd(p);  // target이 자기 자신이 아닌 경우에만 vd를 업데이트
+  }
   release(&p->lock);
 
   return 0;
