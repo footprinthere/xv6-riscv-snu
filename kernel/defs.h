@@ -67,6 +67,7 @@ void            kinit(void);
 void*           kalloc_huge(void);
 void            kfree_huge(void *);
 extern int      freemem, used4k, used2m;
+extern struct spinlock memstat_lock;
 #endif
 
 // log.c

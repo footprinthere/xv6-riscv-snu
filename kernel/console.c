@@ -157,7 +157,9 @@ consoleintr(int c)
     break;
 #ifdef SNU
   case C('F'):
+    acquire(&memstat_lock);
     printf("%d (freemem), %d (4K), %d (2M), %d (PF)\n", freemem, used4k, used2m, pagefaults);
+    release(&memstat_lock);
     break;
 #endif
   default:

@@ -95,16 +95,20 @@ uint64
 sys_kcall(void)
 {
   int n;
+  uint64 ret;
 
   argint(0, &n);
+  acquire(&memstat_lock);
   switch (n)
   {
-    case KC_FREEMEM:    return freemem;
-    case KC_USED4K:     return used4k;
-    case KC_USED2M:     return used2m;
-    case KC_PF:         return pagefaults;
-    default:            return -1;
+    case KC_FREEMEM:    ret = freemem; break;
+    case KC_USED4K:     ret = used4k; break;
+    case KC_USED2M:     ret = used2m; break;
+    case KC_PF:         ret =  pagefaults; break;
+    default:            ret = -1;
   }
+  release(&memstat_lock);
+  return ret;
 }
 
 uint64

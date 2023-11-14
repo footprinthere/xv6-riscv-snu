@@ -34,18 +34,20 @@ struct hugepage_entry hugepages[MAXHUGEPGS] = {0};
 
 #ifdef SNU
 int freemem, used4k, used2m;
+struct spinlock memstat_lock;
 #endif
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&memstat_lock, "memstat_lock");
   freerange(end, (void*)PHYSTOP);
 
-  #ifdef SNU
+  acquire(&memstat_lock);
   used4k = (1 << 15) - freemem;
   used2m = 0;
-  #endif
+  release(&memstat_lock);
 }
 
 void
@@ -112,8 +114,10 @@ kfree(void *pa)
   hugepage->freecount++;
   release(&hugepage->lock);
 
+  acquire(&memstat_lock);
   freemem++;
   used4k--;
+  release(&memstat_lock);
 }
 #endif
 
@@ -194,8 +198,10 @@ kalloc(void)
 
   if (r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    acquire(&memstat_lock);
     freemem--;
     used4k++;
+    release(&memstat_lock);
   }
   return (void*)r;
 }
@@ -227,8 +233,10 @@ kalloc_huge(void)
   if (target > -1) {
     pa = HUGEPAGEADDR(target);
     memset((char*)pa, 5, HUGEPGSIZE); // fill with junk
+    acquire(&memstat_lock);
     freemem -= PGINHUGEPG;
     used2m += 1;
+    release(&memstat_lock);
   }
 
   return pa;
@@ -258,8 +266,10 @@ kfree_huge(void *pa)
   hugepage->hugealloced = FALSE;
   release(&hugepage->lock);
 
+  acquire(&memstat_lock);
   freemem += PGINHUGEPG;
   used2m -= 1;
+  release(&memstat_lock);
 }
 #endif
 
