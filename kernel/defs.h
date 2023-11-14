@@ -112,7 +112,10 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 #ifdef SNU
+void*           mmap(void *addr, int length, int prot, int flags);
 void            pagefault(uint64, uint64);
+struct vm_area* _find_vm_area(struct proc *, uint64);
+int             _alloc_and_map(pte_t *, int);
 extern int      pagefaults;
 #endif
 
@@ -169,6 +172,7 @@ void            kvminit(void);
 void            kvminithart(void);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
+int             lazymappages(pagetable_t, uint64, uint64, int, int);
 pagetable_t     uvmcreate(void);
 void            uvmfirst(pagetable_t, uchar *, uint);
 uint64          uvmalloc(pagetable_t, uint64, uint64, int);
@@ -178,6 +182,8 @@ void            uvmfree(pagetable_t, uint64);
 void            uvmunmap(pagetable_t, uint64, uint64, int);
 void            uvmclear(pagetable_t, uint64);
 pte_t *         walk(pagetable_t, uint64, int);
+pte_t *         hugewalk(pagetable_t, uint64, int);
+pte_t *         walkfind(pagetable_t, uint64, int *);
 uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);

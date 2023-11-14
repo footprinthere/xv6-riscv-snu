@@ -1,3 +1,6 @@
+#define MMAP_MAX_SIZE   (1 << 26)
+#define MMAP_PROC_MAX   4
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -81,6 +84,17 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+struct vm_area {
+  uint64 start;
+  uint64 end;
+  uint64 length;
+  int prot;               // PTE_R, PTE_W
+  int is_huge;
+  int is_forked;
+
+  struct vm_area *next;   // linked list
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -104,4 +118,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // mmap
+  struct vm_area *mmap_area;              // 할당된 공간의 정보
+  int mmap_count;                         // 할당된 공간의 개수 (<= 4)
 };

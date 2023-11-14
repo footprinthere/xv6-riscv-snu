@@ -110,13 +110,16 @@ sys_kcall(void)
 uint64
 sys_mmap(void)
 {
-  // PA4: FILL HERE
+  void *addr;
+  uint64 addr_value;
+  int length, prot, flags;
+  argaddr(0, &addr_value);
+  addr = (void *)addr_value;
+  argint(1, &length);
+  argint(2, &prot);
+  argint(3, &flags);
 
-
-
-
-
-  return 0;
+  return (uint64)mmap(addr, length, prot, flags);
 }
 
 uint64

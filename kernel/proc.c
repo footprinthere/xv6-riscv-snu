@@ -173,6 +173,17 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  
+  p->mmap_count = 0;
+  *p->mmap_area = (struct vm_area) {
+    .start = NULL,
+    .end = NULL,
+    .length = 0,
+    .prot = 0,
+    .is_huge = FALSE,
+    .is_forked = FALSE,
+    .next = NULL
+  };
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -687,13 +698,137 @@ procdump(void)
 }
 
 #ifdef SNU
+/*
+addr부터 length만큼 할당
+  - 이미 할당되어 있으면 0 반환
+  - else 할당하고 addr 그대로 반환
+
+prot 보고 RO / RW 판정 (WO는 없음)
+flag에 따라 shared / private 지원
+
+assumption:
+  - length <= 64MiB
+  - 각 프로세스는 mmap-ed region을 4개까지 가질 수 있음
+  - 시스템은 총 64개 mmap-region을 가질 수 있음
+*/
+void *
+mmap(void *addr, int length, int prot, int flags)
+{
+  uint64 a = (uint64)addr;
+  struct proc *p = myproc();
+  struct vm_area area;
+  int perm, is_shared, is_huge;
+
+  if (length > MMAP_MAX_SIZE)
+    return NULL;
+  if (p->mmap_count >= MMAP_PROC_MAX)
+    return NULL;
+
+  perm = (flags & PROT_WRITE) ? (PTE_R | PTE_W) : PTE_R;
+  is_shared = (flags & MAP_SHARED) ? TRUE : FALSE;
+  is_huge = (flags & MAP_HUGEPAGE) ? TRUE : FALSE;
+  if (lazymappages(p->pagetable, a, length, is_shared, is_huge) == -1)
+    return NULL;
+
+  area = (struct vm_area) {
+    .start = a,
+    .end = a + length,
+    .length = length,
+    .prot = perm,
+    .is_huge = is_huge,
+    .is_forked = FALSE,
+    .next = p->mmap_area
+  };
+  *p->mmap_area = area;
+
+  return addr;
+}
+
+
 void
 pagefault(uint64 scause, uint64 stval)
 {
+  struct proc *p = myproc();
+  pte_t *pte;
+  int is_huge;
+  struct vm_area *area;
+  char *mem;
+
   pagefaults++;
 
-  // PA4: FILL HERE
+  if (scause == SCAUSE_INST)
+    panic("pagefault: instruction fault");
+  if (scause == SCAUSE_LOAD)
+    panic("pagefault: load fault");       // load fault이면 진짜 못 읽는다는 뜻
+  
+  pte = walkfind(p->pagetable, stval, &is_huge);
+  if (!pte)
+    panic("pagefault: pte is NULL");
+  if (!(*pte & PTE_V))
+    panic("pagefault: pte is invalid");   // invalid이면 panic ?
+  if (!(*pte & PTE_R))
+    panic("pagefault: pte is not readable");
+
+  area = _find_vm_area(p, stval);
+  if (!area)
+    panic("pagefault: not an mmap-ed area");
+  if (!(area->prot & PTE_W))
+    panic("pagefault: area is not writable");
+
+  if (!area->is_forked) {
+    // lazy allocation
+    if (is_huge)
+      mem = kalloc_huge();
+    else
+      mem = kalloc();
+    if (!mem)
+      panic("pagefault: kalloc failed");
+    
+    memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
+    if (_alloc_and_map(pte, is_huge) == -1)
+      panic("pagefault: _alloc_and_map failed");
+  } else {
+    // TODO: COW
+
+  }
 
   panic("page fault");
+}
+
+/*
+proc의 mmap_area를 순회하며 주어진 주소가 포함되는 vm_area 찾아 반환.
+해당하는 것이 없으면 NULL 반환.
+*/
+struct vm_area *
+_find_vm_area(struct proc *p, uint64 addr) 
+{
+  struct vm_area *area = p->mmap_area;
+
+  while (area->next) {
+    if (area->start <= addr && addr < area->end)
+      return area;
+    area = area->next;
+  }
+  return NULL;
+}
+
+/*
+PM에 새로운 page를 할당하고 pte에 기록
+*/
+int
+_alloc_and_map(pte_t *pte, int is_huge)
+{
+  char *mem;
+
+  if (is_huge)
+    mem = kalloc_huge();
+  else
+    mem = kalloc();
+  if (!mem)
+    return -1;
+  
+  memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
+  *pte |= PA2PTE(mem);
+  return 0;
 }
 #endif

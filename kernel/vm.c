@@ -82,6 +82,11 @@ kvminithart()
 //   21..29 -- 9 bits of level-1 index.
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
+/*
+PT walk를 수행해 va에 해당하는 PTE의 주소를 찾아줌.
+invalid인 경우 alloc=TRUE이면 바로 kalloc 후 mapping.
+alloc=FALSE이면 0 반환.
+*/
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
@@ -89,16 +94,71 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
     panic("walk");
 
   for(int level = 2; level > 0; level--) {
+    // va에서 level에 해당하는 주소 뽑아서 pagetable 탐색
     pte_t *pte = &pagetable[PX(level, va)];
     if(*pte & PTE_V) {
+      // 만약 valid이면 PTE에서 pa 추출
       pagetable = (pagetable_t)PTE2PA(*pte);
     } else {
       if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
-        return 0;
+        return 0; // invalid인데 alloc=FALSE이면 실패
+      // 다음 level의 PT 초기화
       memset(pagetable, 0, PGSIZE);
+      // PTE에 새로운 PT의 주소 저장하고 valid로 표시
       *pte = PA2PTE(pagetable) | PTE_V;
     }
   }
+  return &pagetable[PX(0, va)];
+}
+
+/*
+walk와 동일하나 hugepage 할당을 위해 level 1의 PTE에서 멈추고 반환.
+*/
+pte_t *
+hugewalk(pagetable_t pagetable, uint64 va, int alloc)
+{
+  if (va >= MAXVA)
+    panic("hugewalk");
+
+  pte_t *pte = &pagetable[PX(2, va)];
+  if (*pte & PTE_V) {
+    pagetable = (pagetable_t)PTE2PA(*pte);
+  } else {
+    if (!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+      return 0;
+    memset(pagetable, 0, PGSIZE);
+    *pte = PA2PTE(pagetable) | PTE_V;
+  }
+  return &pagetable[PX(1, va)];
+}
+
+/*
+hugepage이면 level 1, 아니면 level 0의 PTE 반환.
+hugepage인지의 여부가 is_huge에 저장됨.
+*/
+pte_t *
+walkfind(pagetable_t pagetable, uint64 va, int *is_huge)
+{
+  if (va >= MAXVA)
+    panic("hugewalk");
+
+  for (int level = 2; level > 0; level--) {
+    pte_t *pte = &pagetable[PX(level, va)];
+    if (PTE_FLAGS(*pte) == PTE_V) {
+      // valid이면서 leaf 아님
+      pagetable = (pagetable_t)PTE2PA(*pte);
+    } else if (*pte & (PTE_V | PTE_PRV | PTE_SHR)) {
+      // valid leaf (lazy mapped 포함)
+      if (level == 2)
+        panic("hugepage: leaf in level 2");
+      *is_huge = TRUE;
+      return pte;
+    } else {
+      // invalid
+      return NULL;
+    }
+  }
+  *is_huge = FALSE;
   return &pagetable[PX(0, va)];
 }
 
@@ -139,6 +199,11 @@ kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
 // physical addresses starting at pa. va and size might not
 // be page-aligned. Returns 0 on success, -1 if walk() couldn't
 // allocate a needed page-table page.
+/*
+pagetable 내부에, va에서 pa로 연결되는 size 크기의 map 생성.
+va와 size는 page-aligned 아니어도 됨.
+할당하려는 page가 이미 valid이면 panic.
+*/
 int
 mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 {
@@ -164,9 +229,62 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
+/*
+mappages와 유사하나, 가짜 주소 0으로 연결되는 pte 생성.
+huge나 shared 대응 가능.
+pa=0을 주면 가짜 주소로 lazy alloc 가능.
+할당하려는 page가 이미 valid이면 -1 반환.
+*/
+int
+lazymappages(
+  pagetable_t pagetable,
+  uint64 va,
+  uint64 size,
+  int is_shared,
+  int is_huge
+)
+{
+  uint64 a, last;
+  pte_t *pte;
+  uint64 fake_pa = 0;
+
+  if(size == 0)
+    panic("lazymappages: size");
+  
+  a = PGROUNDDOWN(va);
+  last = PGROUNDDOWN(va + size - 1);
+  for(;;) {
+    if (is_huge) {
+      pte = hugewalk(pagetable, a, 1);
+    } else {
+      pte = walk(pagetable, a, 1);
+    }
+    if(pte == 0 || *pte & PTE_V)
+      return -1;
+
+    // user + RO + valid + (shared)
+    *pte = PA2PTE(fake_pa) | PTE_U | PTE_R | PTE_V;
+    if (is_shared) 
+      *pte |= PTE_SHR;
+
+    if(a == last)
+      break;
+    a += PGSIZE;
+  }
+  return 0;
+}
+
+
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
+/*
+va부터 npages만큼의 PTE를 비움.
+va는 page-aligned 되어 있어야 함.
+do_free=TRUE이면 kfree 수행.
+
+do_free=TRUE일 때도 RSW가 set 되어 있으면 kfree 안 하도록 구현해야 할 듯?
+*/
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
@@ -222,6 +340,12 @@ uvmfirst(pagetable_t pagetable, uchar *src, uint sz)
 
 // Allocate PTEs and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
+/*
+프로세스의 VAS 크기를 oldsz에서 newsz로 확장하기 위해 PTE와 PM 할당.
+oldsz, newsz는 page-aligned 아니어도 됨. (둘 다 ROUND UP 처리됨.)
+내부에서 mappages() 사용.
+-> 이건 PM을 직접 할당하므로 mmap에서 쓸 수 없을 듯.
+*/
 uint64
 uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 {
@@ -302,6 +426,11 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // physical memory.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
+/*
+parent의 page table을 child의 page table로 복사.
+PT와 PM에 모두 복사 일어남.
+TODO: mmap-ed area는 PM 복사하지 않기
+*/
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
