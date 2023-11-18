@@ -174,16 +174,10 @@ freeproc(struct proc *p)
   p->xstate = 0;
   p->state = UNUSED;
   
+  for (int i=0; i<MMAP_PROC_MAX; i++) {
+    p->vm_areas[i].is_valid = FALSE;
+  }
   p->mmap_count = 0;
-  *p->mmap_area = (struct vm_area) {
-    .start = NULL,
-    .end = NULL,
-    .length = 0,
-    .prot = 0,
-    .is_huge = FALSE,
-    .is_forked = FALSE,
-    .next = NULL
-  };
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -716,38 +710,36 @@ mmap(void *addr, int length, int prot, int flags)
 {
   uint64 a = (uint64)addr;
   struct proc *p = myproc();
-  struct vm_area area;
-  int perm, is_shared, is_huge;
+  struct vm_area *area;
+  int is_huge = (flags & MAP_HUGEPAGE) ? TRUE : FALSE;
 
-  if (length > MMAP_MAX_SIZE)
-    return NULL;
-  if (p->mmap_count >= MMAP_PROC_MAX)
+  if (length > MMAP_MAX_SIZE || p->mmap_count >= MMAP_PROC_MAX)
     return NULL;
 
-  perm = (flags & PROT_WRITE) ? (PTE_R | PTE_W) : PTE_R;
-  is_shared = (flags & MAP_SHARED) ? TRUE : FALSE;
-  is_huge = (flags & MAP_HUGEPAGE) ? TRUE : FALSE;
   // addr가 page-aligned 되어 있지 않으면 NULL 반환
   if (is_huge && a % HUGEPGSIZE != 0)
     return NULL;
   if (!is_huge && a % PGSIZE != 0)
     return NULL;
   
-  if (lazymappages(p->pagetable, a, length, is_shared, is_huge) == -1)
+  if (lazymappages(p->pagetable, a, length, (flags & MAP_SHARED), is_huge) == -1)
     return NULL;
 
-  area = (struct vm_area) {
-    .start = a,
-    .end = a + length,
-    .length = length,
-    .prot = perm,
-    .is_huge = is_huge,
-    .is_forked = FALSE,
-    .next = p->mmap_area
-  };
-  p->mmap_area = &area;
+  for (int i=0; i<MMAP_PROC_MAX; i++) {
+    area = p->vm_areas + i;
+    if (area->is_valid) {
+      continue;
+    }
+    area->is_valid = TRUE;
+    area->start = a;
+    area->end = a + length;
+    area->length = length;
+    area->flags = flags;
+    area->is_forked = FALSE;
+    break;
+  }
+  p->mmap_count++;
 
-  printf("mmap: return %p\n", addr);
   return addr;
 }
 
@@ -764,15 +756,13 @@ uvmunmap 구현 참고할 것
 int
 munmap(void *addr)
 {
-  printf("munmap: called\n");
   struct proc *p = myproc();
   uint64 va = (uint64)addr;
 
   struct vm_area *area = _find_vm_area(p, va, TRUE);
-  p->mmap_count--;
   
   pte_t *pte;
-  if (area->is_huge)
+  if (area->flags & MAP_HUGEPAGE)
     pte = hugewalk(p->pagetable, va, FALSE);
   else
     pte = walk(p->pagetable, va, FALSE);
@@ -790,7 +780,7 @@ munmap(void *addr)
 
   // vm_area 중 겹치는 다른 것이 없으면 kfree (huge 여부 판정 필요)
   uint64 page_start, page_end;
-  if (area->is_huge) {
+  if (area->flags & MAP_HUGEPAGE) {
     page_start = HUGEPGROUNDDONW(va);
     page_end = page_start + HUGEPGSIZE;
     if (!_is_overlapped(page_start, page_end))
@@ -810,14 +800,17 @@ munmap(void *addr)
 int
 munmap_all(void)
 {
-  printf("munmap_all: called\n");
   struct proc *p = myproc();
-  struct vm_area *area = p->mmap_area;
+  struct vm_area *area;
 
-  while (area) {
-    if (munmap((void *)area->start) == -1)
+  for (int i=0; i<MMAP_PROC_MAX; i++) {
+    area = p->vm_areas + i;
+    if (!area->is_valid) {
+      continue;
+    }
+    if (munmap((void *)area->start) == -1) {
       return -1;
-    area = area->next;
+    }
   }
   return 0;
 }
@@ -879,19 +872,20 @@ proc의 mmap_area를 순회하며 주어진 주소가 포함되는 vm_area 찾�
 struct vm_area *
 _find_vm_area(struct proc *p, uint64 addr, int pop) 
 {
-  struct vm_area *area = p->mmap_area;
-  struct vm_area **ptr = &(p->mmap_area);
+  struct vm_area *area;
 
-  while (area) {
+  for (int i=0; i<MMAP_PROC_MAX; i++) {
+    area = p->vm_areas + i;
+    if (!area->is_valid) {
+      continue;
+    }
     if (area->start <= addr && addr < area->end) {
       if (pop) {
-        *ptr = area->next;
-        area->next = NULL;
+        area->is_valid = FALSE;
+        p->mmap_count--;
       }
       return area;
     }
-    ptr = &(area->next);
-    area = area->next;
   }
   return NULL;
 }
@@ -906,12 +900,11 @@ _is_overlapped(uint64 start, uint64 end) {
   struct vm_area *area;
 
   for (p = proc; p < &proc[NPROC]; p++) {
-    area = p->mmap_area;
-
-    while (area) {
-      if (area->start < end && start < area->end)
+    for (int i=0; i<MMAP_PROC_MAX; i++) {
+      area = p->vm_areas + i;
+      if (area->is_valid && area->start < end && start < area->end) {
         return TRUE;
-      area = area->next;
+      }
     }
   }
   return FALSE;

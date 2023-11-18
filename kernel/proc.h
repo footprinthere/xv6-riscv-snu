@@ -85,14 +85,12 @@ struct trapframe {
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 struct vm_area {
+  int is_valid;
   uint64 start;
   uint64 end;
   uint64 length;
-  int prot;               // PTE_R, PTE_W
-  int is_huge;
+  int flags;    // PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE, MAP_HUGEPAGE
   int is_forked;
-
-  struct vm_area *next;   // linked list
 };
 
 // Per-process state
@@ -120,6 +118,6 @@ struct proc {
   char name[16];               // Process name (debugging)
 
   // mmap
-  struct vm_area *mmap_area;              // 할당된 공간의 정보
+  struct vm_area vm_areas[MMAP_PROC_MAX]; // 할당된 공간의 정보
   int mmap_count;                         // 할당된 공간의 개수 (<= 4)
 };
