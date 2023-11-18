@@ -249,13 +249,13 @@ lazymappages(
 
   if(size == 0)
     panic("lazymappages: size");
-  
+
   if (is_huge) {
     a = HUGEPGROUNDDONW(va);
     last = HUGEPGROUNDDONW(va + size - 1);
   } else {
-  a = PGROUNDDOWN(va);
-  last = PGROUNDDOWN(va + size - 1);
+    a = PGROUNDDOWN(va);
+    last = PGROUNDDOWN(va + size - 1);
   }
 
   while (a <= last) {
@@ -269,15 +269,14 @@ lazymappages(
 
     // user + RO + valid + (shared)
     *pte = PA2PTE(ZEROHUGEPG) | PTE_U | PTE_R | PTE_V;
-    if (is_shared) 
+    if (is_shared) {
       *pte |= PTE_SHR;
-
-    show_pte(pte);
+    }
 
     if (is_huge) {
       a += HUGEPGSIZE;
     } else {
-    a += PGSIZE;
+      a += PGSIZE;
     }
   }
   return 0;
