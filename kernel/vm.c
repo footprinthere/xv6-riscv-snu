@@ -144,18 +144,18 @@ walkfind(pagetable_t pagetable, uint64 va, int *is_huge)
 
   for (int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
-    if (PTE_FLAGS(*pte) == PTE_V) {
+    if (!(*pte & PTE_V)) {
+      // invalid
+      return NULL;
+    } else if (PTE_FLAGS(*pte) == PTE_V) {
       // valid이면서 leaf 아님
       pagetable = (pagetable_t)PTE2PA(*pte);
-    } else if (*pte & (PTE_V | PTE_PRV | PTE_SHR)) {
-      // valid leaf (lazy mapped 포함)
+    } else {
+      // valid leaf
       if (level == 2)
         panic("hugepage: leaf in level 2");
       *is_huge = TRUE;
       return pte;
-    } else {
-      // invalid
-      return NULL;
     }
   }
   *is_huge = FALSE;
