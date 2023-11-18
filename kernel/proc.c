@@ -751,6 +751,76 @@ mmap(void *addr, int length, int prot, int flags)
   return addr;
 }
 
+/*
+addr 위치에 할당되어 있는 공간 해제
+  - 성공 시 0, 실패 시 -1 반환
+uvmunmap 구현 참고할 것
+
+해제 후 page frame이 비었으면 kfree
+
+프로세스가 종료될 때는 자동으로 munmap 되어야 함
+  - exit, exec
+*/
+int
+munmap(void *addr)
+{
+  printf("munmap: called\n");
+  struct proc *p = myproc();
+  uint64 va = (uint64)addr;
+
+  struct vm_area *area = _find_vm_area(p, va, TRUE);
+  p->mmap_count--;
+  
+  pte_t *pte;
+  if (area->is_huge)
+    pte = hugewalk(p->pagetable, va, FALSE);
+  else
+    pte = walk(p->pagetable, va, FALSE);
+
+  if (pte == NULL)
+    return -1;
+  if ((*pte & PTE_V) == 0)
+    return -1;    // invalid (not mapped)
+  if (PTE_FLAGS(*pte) == PTE_V)
+    return -1;    // not a leaf
+
+  // pte 내용 지워서 map 해제
+  uint64 pa = PTE2PA(*pte);
+  *pte = 0;
+
+  // vm_area 중 겹치는 다른 것이 없으면 kfree (huge 여부 판정 필요)
+  uint64 page_start, page_end;
+  if (area->is_huge) {
+    page_start = HUGEPGROUNDDONW(va);
+    page_end = page_start + HUGEPGSIZE;
+    if (!_is_overlapped(page_start, page_end))
+      kfree_huge((void*)pa);
+  } else {
+    page_start = PGROUNDDOWN(va);
+    page_end = page_start + PGSIZE;
+    if (!_is_overlapped(page_start, page_end))
+      kfree((void*)pa);
+  }
+  return 0;
+}
+
+/*
+현재 process가 mmap으로 할당 받은 모든 공간 해제
+*/
+int
+munmap_all(void)
+{
+  printf("munmap_all: called\n");
+  struct proc *p = myproc();
+  struct vm_area *area = p->mmap_area;
+
+  while (area) {
+    if (munmap((void *)area->start) == -1)
+      return -1;
+    area = area->next;
+  }
+  return 0;
+}
 
 void
 pagefault(uint64 scause, uint64 stval)
@@ -827,22 +897,23 @@ _find_vm_area(struct proc *p, uint64 addr, int pop)
 }
 
 /*
-PM에 새로운 page를 할당하고 pte에 기록
+모든 proc의 mmap_area를 순회하며 주어진 구간과
+겹치는 것이 있으면 TRUE, 없으면 FALSE 반환.
 */
 int
-_alloc_and_map(pte_t *pte, int is_huge)
-{
-  char *mem;
+_is_overlapped(uint64 start, uint64 end) {
+  struct proc *p;
+  struct vm_area *area;
 
-  if (is_huge)
-    mem = kalloc_huge();
-  else
-    mem = kalloc();
-  if (!mem)
-    return -1;
-  
-  memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
-  *pte |= PA2PTE(mem);
-  return 0;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    area = p->mmap_area;
+
+    while (area) {
+      if (area->start < end && start < area->end)
+        return TRUE;
+      area = area->next;
+    }
+  }
+  return FALSE;
 }
 #endif

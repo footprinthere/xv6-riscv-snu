@@ -114,8 +114,11 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 #ifdef SNU
 void*           mmap(void *addr, int length, int prot, int flags);
+int             munmap(void *addr);
+int             munmap_all(void);
 void            pagefault(uint64, uint64);
 struct vm_area* _find_vm_area(struct proc *, uint64, int);
+int             _is_overlapped(uint64, uint64);
 extern int      pagefaults;
 #endif
 

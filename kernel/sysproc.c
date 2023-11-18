@@ -129,12 +129,11 @@ sys_mmap(void)
 uint64
 sys_munmap(void)
 {
-  // PA4: FILL HERE
+  void *addr;
+  uint64 addr_value;
+  argaddr(0, &addr_value);
+  addr = (void *)addr_value;
 
-
-
-
-  return 0;
+  return munmap(addr);
 }
 #endif
-
