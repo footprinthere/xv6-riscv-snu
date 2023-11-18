@@ -48,6 +48,18 @@ kinit()
   used4k = (1 << 15) - freemem;
   used2m = 0;
   release(&memstat_lock);
+
+  // 상수 위치에 zero pager 할당
+  struct hugepage_entry *zeropage = hugepages + HUGEPGINDEX(ZEROHUGEPG);
+  acquire(&zeropage->lock);
+  zeropage->hugealloced = TRUE;
+  release(&zeropage->lock);
+  memset(ZEROHUGEPG, 0, HUGEPGSIZE);
+
+  acquire(&memstat_lock);
+  freemem -= PGINHUGEPG;
+  used2m += 1;
+  release(&memstat_lock);
 }
 
 void
