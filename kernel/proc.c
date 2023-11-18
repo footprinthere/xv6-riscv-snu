@@ -369,6 +369,9 @@ exit(int status)
     }
   }
 
+  // unmap mmap-ed areas
+  munmap_all();
+
   begin_op();
   iput(p->cwd);
   end_op();
