@@ -230,7 +230,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 }
 
 /*
-mappages와 유사하나, 가짜 주소 0으로 연결되는 pte 생성.
+mappages와 유사하나, zero page로 연결되는 pte 생성.
 huge나 shared 대응 가능.
 pa=0을 주면 가짜 주소로 lazy alloc 가능.
 할당하려는 page가 이미 valid이면 -1 반환.
@@ -246,30 +246,39 @@ lazymappages(
 {
   uint64 a, last;
   pte_t *pte;
-  uint64 fake_pa = 0;
 
   if(size == 0)
     panic("lazymappages: size");
   
+  if (is_huge) {
+    a = HUGEPGROUNDDONW(va);
+    last = HUGEPGROUNDDONW(va + size - 1);
+  } else {
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
-  for(;;) {
+  }
+
+  while (a <= last) {
     if (is_huge) {
-      pte = hugewalk(pagetable, a, 1);
+      pte = hugewalk(pagetable, a, TRUE);
     } else {
-      pte = walk(pagetable, a, 1);
+      pte = walk(pagetable, a, TRUE);
     }
-    if(pte == 0 || *pte & PTE_V)
+    if(pte == NULL || *pte & PTE_V)
       return -1;
 
     // user + RO + valid + (shared)
-    *pte = PA2PTE(fake_pa) | PTE_U | PTE_R | PTE_V;
+    *pte = PA2PTE(ZEROHUGEPG) | PTE_U | PTE_R | PTE_V;
     if (is_shared) 
       *pte |= PTE_SHR;
 
-    if(a == last)
-      break;
+    show_pte(pte);
+
+    if (is_huge) {
+      a += HUGEPGSIZE;
+    } else {
     a += PGSIZE;
+    }
   }
   return 0;
 }
