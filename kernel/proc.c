@@ -807,13 +807,20 @@ proc의 mmap_area를 순회하며 주어진 주소가 포함되는 vm_area 찾�
 해당하는 것이 없으면 NULL 반환.
 */
 struct vm_area *
-_find_vm_area(struct proc *p, uint64 addr) 
+_find_vm_area(struct proc *p, uint64 addr, int pop) 
 {
   struct vm_area *area = p->mmap_area;
+  struct vm_area **ptr = &(p->mmap_area);
 
-  while (area->next) {
-    if (area->start <= addr && addr < area->end)
+  while (area) {
+    if (area->start <= addr && addr < area->end) {
+      if (pop) {
+        *ptr = area->next;
+        area->next = NULL;
+      }
       return area;
+    }
+    ptr = &(area->next);
     area = area->next;
   }
   return NULL;

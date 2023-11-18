@@ -115,8 +115,7 @@ void            procdump(void);
 #ifdef SNU
 void*           mmap(void *addr, int length, int prot, int flags);
 void            pagefault(uint64, uint64);
-struct vm_area* _find_vm_area(struct proc *, uint64);
-int             _alloc_and_map(pte_t *, int);
+struct vm_area* _find_vm_area(struct proc *, uint64, int);
 extern int      pagefaults;
 #endif
 
