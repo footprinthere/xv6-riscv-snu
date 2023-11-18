@@ -153,6 +153,9 @@ _pop_page(struct hugepage_entry *hugepage)
 {
   struct run *r;
 
+  if (hugepage->hugealloced)
+    panic("_pop_page: hugealloced");
+
   r = hugepage->freelist;
   if (r) {
     hugepage->freelist = r->next;
@@ -175,7 +178,9 @@ kalloc(void)
     hugepage = hugepages + i;
 
     acquire(&hugepage->lock);
-    if (hugepage->freecount == PGINHUGEPG) {
+    if (hugepage->hugealloced) {
+      // kalloc_huge로 할당됨 -> skip
+    } else if (hugepage->freecount == PGINHUGEPG) {
       // 아직 쪼개지지 않은 hugepage -> 일단 기억해두고 skip
       if (!free_hugepage) {
         free_hugepage = hugepage;
@@ -272,9 +277,3 @@ kfree_huge(void *pa)
   release(&memstat_lock);
 }
 #endif
-
-/*
-NOTE
-
-할당/해제 할 때마다 freemem, used4k, used2m 업데이트 하기
-*/
