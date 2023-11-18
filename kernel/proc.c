@@ -737,7 +737,7 @@ mmap(void *addr, int length, int prot, int flags)
     area->start = a;
     area->end = a + length;
     area->length = length;
-    area->flags = flags;
+    area->flags = prot | flags;
     area->is_forked = FALSE;
     break;
   }
