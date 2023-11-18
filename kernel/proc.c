@@ -727,6 +727,12 @@ mmap(void *addr, int length, int prot, int flags)
   perm = (flags & PROT_WRITE) ? (PTE_R | PTE_W) : PTE_R;
   is_shared = (flags & MAP_SHARED) ? TRUE : FALSE;
   is_huge = (flags & MAP_HUGEPAGE) ? TRUE : FALSE;
+  // addr가 page-aligned 되어 있지 않으면 NULL 반환
+  if (is_huge && a % HUGEPGSIZE != 0)
+    return NULL;
+  if (!is_huge && a % PGSIZE != 0)
+    return NULL;
+  
   if (lazymappages(p->pagetable, a, length, is_shared, is_huge) == -1)
     return NULL;
 
@@ -739,8 +745,9 @@ mmap(void *addr, int length, int prot, int flags)
     .is_forked = FALSE,
     .next = p->mmap_area
   };
-  *p->mmap_area = area;
+  p->mmap_area = &area;
 
+  printf("mmap: return %p\n", addr);
   return addr;
 }
 
