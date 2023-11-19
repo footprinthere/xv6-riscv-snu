@@ -829,24 +829,29 @@ pagefault(uint64 scause, uint64 stval)
 
   pagefaults++;
 
-  if (scause == SCAUSE_INST)
-    panic("pagefault: instruction fault");
-  if (scause == SCAUSE_LOAD)
-    panic("pagefault: load fault");       // load fault이면 진짜 못 읽는다는 뜻
+  if (scause == SCAUSE_LOAD) {
+    // load fault면 진짜 못 읽는 것
+    printf("pagefault (load): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
+    setkilled(p);
+    return;
+  }
   
   pte = walkfind(p->pagetable, stval, &is_huge);
-  if (!pte)
-    panic("pagefault: pte is NULL");
-  if (!(*pte & PTE_V))
-    panic("pagefault: pte is invalid");   // invalid이면 panic ?
-  if (!(*pte & PTE_R))
-    panic("pagefault: pte is not readable");
+  if (pte == NULL || !(*pte & PTE_V)) {
+    // PTE가 invalid
+    printf("pagefault (store - invalid): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
+    setkilled(p);
+    return;
+  }
 
-  area = _find_vm_area(p, stval);
-  if (!area)
-    panic("pagefault: not an mmap-ed area");
-  if (!(area->prot & PTE_W))
-    panic("pagefault: area is not writable");
+  area = _find_vm_area(p, stval, FALSE);
+  if (area == NULL || !(area->flags & PROT_WRITE)) {
+    // mmap 되지 않았거나 not writable
+    printf("pagefault (store - not writable): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
+    printf("                                  area=%p\n", area);
+    setkilled(p);
+    return;
+  }
 
   if (!area->is_forked) {
     // lazy allocation
@@ -858,14 +863,11 @@ pagefault(uint64 scause, uint64 stval)
       panic("pagefault: kalloc failed");
     
     memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
-    if (_alloc_and_map(pte, is_huge) == -1)
-      panic("pagefault: _alloc_and_map failed");
+    *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R | PTE_W;
   } else {
     // TODO: COW
 
   }
-
-  panic("page fault");
 }
 
 /*
@@ -873,7 +875,7 @@ proc의 mmap_area를 순회하며 주어진 주소가 포함되는 vm_area 찾�
 해당하는 것이 없으면 NULL 반환.
 */
 struct vm_area *
-_find_vm_area(struct proc *p, uint64 addr, int pop) 
+_find_vm_area(struct proc *p, uint64 addr, int pop)
 {
   struct vm_area *area;
 
