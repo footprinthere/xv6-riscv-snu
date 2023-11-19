@@ -559,26 +559,27 @@ _copy_mmap_area(
 )
 {
   uint64 pa = PTE2PA(*pte);
-  int flags = options_to_flags(area->flags);
   int is_huge = (area->flags & MAP_HUGEPAGE) ? TRUE : FALSE;
+  int flags;
 
   if (area->flags & MAP_SHARED) {
     // 새 process에 같은 PA로 연결되는 PTE 생성
+    flags = PTE_FLAGS(*pte);
     if (flexmappages(np->pagetable, area->start, area->length, pa, is_huge, flags) == -1) {
       return -1;
     }
     // 새 process에 vm_area 추가
     _add_vm_area(np, area->start, area->length, area->flags, FALSE);
   } else {
-    // 새 process에 같은 PA로 연결되는 RO PTE 생성
-    flags &= ~PTE_W;
-    if (flexmappages(np->pagetable, area->start, area->length, pa, is_huge, flags) == -1) {
-      return -1;
-    }
     // 기존 PTE의 prot RO로 수정
     *pte &= ~PTE_W;
     // vm_area에 COW 필요하다고 표시
     area->needs_cow = TRUE;
+    // 새 process에 같은 PA로 연결되는 RO PTE 생성
+    flags = PTE_FLAGS(*pte);
+    if (flexmappages(np->pagetable, area->start, area->length, pa, is_huge, flags) == -1) {
+      return -1;
+    }
     // 새 process에 vm_area 추가
     _add_vm_area(np, area->start, area->length, area->flags, TRUE);
   }

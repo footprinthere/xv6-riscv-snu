@@ -864,21 +864,28 @@ pagefault(uint64 scause, uint64 stval)
     return;
   }
 
-  if (!area->needs_cow) {
-    // lazy allocation
-    if (is_huge)
-      mem = kalloc_huge();
-    else
-      mem = kalloc();
-    if (!mem)
-      panic("pagefault: kalloc failed");
-    
-    memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
-    *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R | PTE_W;
+  if (is_huge) {
+    mem = kalloc_huge();
   } else {
-    // TODO: COW
-
+    mem = kalloc();
   }
+  if (!mem) {
+    panic("pagefault: kalloc failed");
+  }
+
+  if (area->needs_cow) {
+    // private, allocated
+    area->needs_cow = FALSE;
+    memmove(mem, (void*)PTE2PA(*pte), (is_huge) ? HUGEPGSIZE : PGSIZE);
+  } else {
+    // zero page
+    memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
+    if (area->flags & MAP_SHARED) {
+      // shared
+      // TODO: 같은 공간에 연결된 모든 process의 PTE 수정
+    }
+  }
+  *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R | PTE_W;
 }
 
 /*
