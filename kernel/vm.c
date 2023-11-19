@@ -242,8 +242,7 @@ flexmappages(
   uint64 va,
   uint64 size,
   uint64 pa,
-  int is_shared,
-  int is_huge
+  int flags
 )
 {
   uint64 a, last;
@@ -253,7 +252,7 @@ flexmappages(
   if(size == 0)
     panic("flexmappages: size");
 
-  if (is_huge) {
+  if (flags & MAP_HUGEPAGE) {
     a = HUGEPGROUNDDONW(va);
     last = HUGEPGROUNDDONW(va + size - 1);
   } else {
@@ -267,7 +266,7 @@ flexmappages(
   }
 
   while (a <= last) {
-    if (is_huge) {
+    if (flags & MAP_HUGEPAGE) {
       pte = hugewalk(pagetable, a, TRUE);
     } else {
       pte = walk(pagetable, a, TRUE);
@@ -277,11 +276,14 @@ flexmappages(
 
     // user + RO + valid + (shared)
     *pte = PA2PTE(pa) | PTE_U | PTE_R | PTE_V;
-    if (is_shared) {
+    if (!to_zeropg && flags & PROT_WRITE) {
+      *pte |= PTE_W;
+    }
+    if (flags & MAP_SHARED) {
       *pte |= PTE_SHR;
     }
 
-    if (is_huge) {
+    if (flags & MAP_HUGEPAGE) {
       a += HUGEPGSIZE;
       pa += (to_zeropg) ? 0 : HUGEPGSIZE;
     } else {

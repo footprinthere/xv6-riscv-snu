@@ -726,7 +726,7 @@ mmap(void *addr, int length, int prot, int flags)
     return NULL;
   
   // zero page로 연결되는 PTE 생성
-  if (flexmappages(p->pagetable, a, length, NULL, (flags & MAP_SHARED), is_huge) == -1)
+  if (flexmappages(p->pagetable, a, length, NULL, prot | flags) == -1)
     return NULL;
   _add_vm_area(p, a, length, prot | flags, FALSE);
 
