@@ -840,7 +840,7 @@ pagefault(uint64 scause, uint64 stval)
     return;
   }
 
-  if (!area->is_forked) {
+  if (!area->needs_cow) {
     // lazy allocation
     if (is_huge)
       mem = kalloc_huge();
@@ -867,7 +867,7 @@ _add_vm_area(
   uint64 start,
   uint64 length,
   int flags,
-  int is_forked
+  int needs_cow
 )
 {
   struct vm_area *area;
@@ -880,7 +880,7 @@ _add_vm_area(
       area->end = start + length;
       area->length = length;
       area->flags = flags;
-      area->is_forked = is_forked;
+      area->needs_cow = needs_cow;
       p->mmap_count++;
       return 0;
     }

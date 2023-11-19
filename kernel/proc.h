@@ -90,7 +90,7 @@ struct vm_area {
   uint64 end;
   uint64 length;
   int flags;    // PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE, MAP_HUGEPAGE
-  int is_forked;
+  int needs_cow;
 };
 
 // Per-process state
