@@ -713,7 +713,6 @@ mmap(void *addr, int length, int prot, int flags)
 {
   uint64 a = (uint64)addr;
   struct proc *p = myproc();
-  struct vm_area *area;
   int is_huge = (flags & MAP_HUGEPAGE) ? TRUE : FALSE;
 
   if (length > MMAP_MAX_SIZE || p->mmap_count >= MMAP_PROC_MAX)
@@ -724,13 +723,30 @@ mmap(void *addr, int length, int prot, int flags)
     return NULL;
   if (!is_huge && a % PGSIZE != 0)
     return NULL;
-  
+
   // zero page로 연결되는 PTE 생성
-  if (flexmappages(p->pagetable, a, length, NULL, prot | flags) == -1)
+  int pte_flags = options_to_flags(prot | flags);
+  if (flexmappages(p->pagetable, a, length, NULL, flags & MAP_HUGEPAGE, pte_flags) == -1)
     return NULL;
   _add_vm_area(p, a, length, prot | flags, FALSE);
 
   return addr;
+}
+
+/*
+mmap 옵션을 받아 PTE flags로 변환
+*/
+int
+options_to_flags(int options)
+{
+  int pte_flags = PTE_V | PTE_U;
+  if (options & PROT_READ)
+    pte_flags |= PTE_R;
+  if (options & PROT_WRITE)
+    pte_flags |= PTE_W;
+  if (options & MAP_SHARED)
+    pte_flags |= PTE_SHR;
+  return pte_flags;
 }
 
 /*

@@ -242,7 +242,8 @@ flexmappages(
   uint64 va,
   uint64 size,
   uint64 pa,
-  int flags
+  int is_huge,
+  int pte_flags
 )
 {
   uint64 a, last;
@@ -252,7 +253,7 @@ flexmappages(
   if(size == 0)
     panic("flexmappages: size");
 
-  if (flags & MAP_HUGEPAGE) {
+  if (is_huge) {
     a = HUGEPGROUNDDONW(va);
     last = HUGEPGROUNDDONW(va + size - 1);
   } else {
@@ -266,7 +267,7 @@ flexmappages(
   }
 
   while (a <= last) {
-    if (flags & MAP_HUGEPAGE) {
+    if (is_huge) {
       pte = hugewalk(pagetable, a, TRUE);
     } else {
       pte = walk(pagetable, a, TRUE);
@@ -275,15 +276,13 @@ flexmappages(
       return -1;
 
     // user + RO + valid + (shared)
-    *pte = PA2PTE(pa) | PTE_U | PTE_R | PTE_V;
-    if (!to_zeropg && flags & PROT_WRITE) {
-      *pte |= PTE_W;
-    }
-    if (flags & MAP_SHARED) {
-      *pte |= PTE_SHR;
+    *pte = PA2PTE(pa) | pte_flags | PTE_V;
+    if (to_zeropg) {
+      // zero page로의 lazy mapping이면 W 제거
+      *pte &= ~PTE_W;
     }
 
-    if (flags & MAP_HUGEPAGE) {
+    if (is_huge) {
       a += HUGEPGSIZE;
       pa += (to_zeropg) ? 0 : HUGEPGSIZE;
     } else {

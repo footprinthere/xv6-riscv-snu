@@ -114,6 +114,7 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 #ifdef SNU
 void*           mmap(void *addr, int length, int prot, int flags);
+int             options_to_flags(int);
 int             munmap(void *addr);
 int             munmap_all(void);
 void            pagefault(uint64, uint64);
@@ -176,7 +177,7 @@ void            kvminit(void);
 void            kvminithart(void);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
-int             flexmappages(pagetable_t, uint64, uint64, uint64, int);
+int             flexmappages(pagetable_t, uint64, uint64, uint64, int, int);
 pagetable_t     uvmcreate(void);
 void            uvmfirst(pagetable_t, uchar *, uint);
 uint64          uvmalloc(pagetable_t, uint64, uint64, int);
