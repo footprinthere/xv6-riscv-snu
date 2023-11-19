@@ -725,7 +725,8 @@ mmap(void *addr, int length, int prot, int flags)
   if (!is_huge && a % PGSIZE != 0)
     return NULL;
   
-  if (lazymappages(p->pagetable, a, length, (flags & MAP_SHARED), is_huge) == -1)
+  // zero page로 연결되는 PTE 생성
+  if (flexmappages(p->pagetable, a, length, NULL, (flags & MAP_SHARED), is_huge) == -1)
     return NULL;
 
   for (int i=0; i<MMAP_PROC_MAX; i++) {
