@@ -89,7 +89,7 @@ struct vm_area {
   uint64 start;
   uint64 end;
   uint64 length;
-  int flags;    // PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE, MAP_HUGEPAGE
+  int options;    // PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE, MAP_HUGEPAGE
   int needs_cow;
 };
 

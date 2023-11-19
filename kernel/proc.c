@@ -776,7 +776,7 @@ munmap(void *addr)
   struct vm_area *area = _find_vm_area(p, va, TRUE);
   
   pte_t *pte;
-  if (area->flags & MAP_HUGEPAGE)
+  if (area->options & MAP_HUGEPAGE)
     pte = hugewalk(p->pagetable, va, FALSE);
   else
     pte = walk(p->pagetable, va, FALSE);
@@ -794,7 +794,7 @@ munmap(void *addr)
 
   // vm_area 중 겹치는 다른 것이 없으면 kfree (huge 여부 판정 필요)
   uint64 page_start, page_end;
-  if (area->flags & MAP_HUGEPAGE) {
+  if (area->options & MAP_HUGEPAGE) {
     page_start = HUGEPGROUNDDONW(va);
     page_end = page_start + HUGEPGSIZE;
     if (!_is_overlapped(page_start, page_end))
@@ -856,7 +856,7 @@ pagefault(uint64 scause, uint64 stval)
   }
 
   area = _find_vm_area(p, stval, FALSE);
-  if (area == NULL || !(area->flags & PROT_WRITE)) {
+  if (area == NULL || !(area->options & PROT_WRITE)) {
     // mmap 되지 않았거나 not writable
     printf("pagefault (store - not writable): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
     printf("                                  area=%p\n", area);
@@ -880,7 +880,7 @@ pagefault(uint64 scause, uint64 stval)
   } else {
     // zero page
     memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
-    if (area->flags & MAP_SHARED) {
+    if (area->options & MAP_SHARED) {
       // shared
       // TODO: 같은 공간에 연결된 모든 process의 PTE 수정
     }
@@ -897,7 +897,7 @@ _add_vm_area(
   struct proc *p,
   uint64 start,
   uint64 length,
-  int flags,
+  int options,
   int needs_cow
 )
 {
@@ -910,7 +910,7 @@ _add_vm_area(
       area->start = start;
       area->end = start + length;
       area->length = length;
-      area->flags = flags;
+      area->options = options;
       area->needs_cow = needs_cow;
       p->mmap_count++;
       return 0;

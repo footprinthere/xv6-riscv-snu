@@ -559,17 +559,17 @@ _copy_mmap_area(
 )
 {
   uint64 pa = PTE2PA(*pte);
-  int is_huge = (area->flags & MAP_HUGEPAGE) ? TRUE : FALSE;
+  int is_huge = (area->options & MAP_HUGEPAGE) ? TRUE : FALSE;
   int flags;
 
-  if (area->flags & MAP_SHARED) {
+  if (area->options & MAP_SHARED) {
     // 새 process에 같은 PA로 연결되는 PTE 생성
     flags = PTE_FLAGS(*pte);
     if (flexmappages(np->pagetable, area->start, area->length, pa, is_huge, flags) == -1) {
       return -1;
     }
     // 새 process에 vm_area 추가
-    _add_vm_area(np, area->start, area->length, area->flags, FALSE);
+    _add_vm_area(np, area->start, area->length, area->options, FALSE);
   } else {
     // 기존 PTE의 prot RO로 수정
     *pte &= ~PTE_W;
@@ -581,7 +581,7 @@ _copy_mmap_area(
       return -1;
     }
     // 새 process에 vm_area 추가
-    _add_vm_area(np, area->start, area->length, area->flags, TRUE);
+    _add_vm_area(np, area->start, area->length, area->options, TRUE);
   }
   return 0;
 }
