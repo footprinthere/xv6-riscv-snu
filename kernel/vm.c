@@ -134,7 +134,7 @@ hugewalk(pagetable_t pagetable, uint64 va, int alloc)
 
 /*
 hugepage이면 level 1, 아니면 level 0의 PTE 반환.
-hugepage인지의 여부가 is_huge에 저장됨.
+hugepage인지의 여부가 is_huge에 저장됨. (if not NULL)
 */
 pte_t *
 walkfind(pagetable_t pagetable, uint64 va, int *is_huge)
@@ -154,11 +154,13 @@ walkfind(pagetable_t pagetable, uint64 va, int *is_huge)
       // valid leaf
       if (level == 2)
         panic("hugepage: leaf in level 2");
-      *is_huge = TRUE;
+      if (is_huge != NULL)
+        *is_huge = TRUE;
       return pte;
     }
   }
-  *is_huge = FALSE;
+  if (is_huge != NULL)
+    *is_huge = FALSE;
   return &pagetable[PX(0, va)];
 }
 
