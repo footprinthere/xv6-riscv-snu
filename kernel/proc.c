@@ -728,21 +728,7 @@ mmap(void *addr, int length, int prot, int flags)
   // zero page로 연결되는 PTE 생성
   if (flexmappages(p->pagetable, a, length, NULL, (flags & MAP_SHARED), is_huge) == -1)
     return NULL;
-
-  for (int i=0; i<MMAP_PROC_MAX; i++) {
-    area = p->vm_areas + i;
-    if (area->is_valid) {
-      continue;
-    }
-    area->is_valid = TRUE;
-    area->start = a;
-    area->end = a + length;
-    area->length = length;
-    area->flags = prot | flags;
-    area->is_forked = FALSE;
-    break;
-  }
-  p->mmap_count++;
+  _add_vm_area(p, a, length, prot | flags, FALSE);
 
   return addr;
 }
@@ -869,6 +855,37 @@ pagefault(uint64 scause, uint64 stval)
     // TODO: COW
 
   }
+}
+
+/*
+proc의 mmap_area를 순회하며 빈 자리를 찾아 새로운 area 저장.
+빈 자리가 없으면 -1 반환.
+*/
+int
+_add_vm_area(
+  struct proc *p,
+  uint64 start,
+  uint64 length,
+  int flags,
+  int is_forked
+)
+{
+  struct vm_area *area;
+
+  for (int i=0; i<MMAP_PROC_MAX; i++) {
+    area = p->vm_areas + i;
+    if (!area->is_valid) {
+      area->is_valid = TRUE;
+      area->start = start;
+      area->end = start + length;
+      area->length = length;
+      area->flags = flags;
+      area->is_forked = is_forked;
+      p->mmap_count++;
+      return 0;
+    }
+  }
+  return -1;
 }
 
 /*
