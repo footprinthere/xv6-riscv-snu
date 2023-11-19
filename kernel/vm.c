@@ -6,6 +6,11 @@
 #include "defs.h"
 #include "fs.h"
 
+#ifdef SNU
+#include "spinlock.h"
+#include "proc.h"
+#endif
+
 /*
  * the kernel's page table.
  */
@@ -261,7 +266,7 @@ flexmappages(
     last = PGROUNDDOWN(va + size - 1);
   }
 
-  if (pa == NULL) {
+  if (pa == NULL || pa == (uint64)ZEROHUGEPG) {
     pa = (uint64)ZEROHUGEPG;
     to_zeropg = TRUE;
   }
@@ -301,8 +306,6 @@ flexmappages(
 va부터 npages만큼의 PTE를 비움.
 va는 page-aligned 되어 있어야 함.
 do_free=TRUE이면 kfree 수행.
-
-do_free=TRUE일 때도 RSW가 set 되어 있으면 kfree 안 하도록 구현해야 할 듯?
 */
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
@@ -445,11 +448,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // physical memory.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
-/*
-parent의 page table을 child의 page table로 복사.
-PT와 PM에 모두 복사 일어남.
-TODO: mmap-ed area는 PM 복사하지 않기
-*/
+#ifndef SNU
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
@@ -479,6 +478,151 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
 }
+
+#else
+/*
+fork() 안에서 호출됨.
+parent의 page table을 child의 page table로 복사.
+*/
+int
+uvmcopy(struct proc *p, struct proc *np, uint64 sz)
+{
+  pte_t *pte;
+  uint64 pa;
+  uint64 a = 0;
+  char *mem;
+  struct vm_area *area;
+
+  int is_huge;
+  int page_size;
+  int flags;
+
+  while (a < sz) {
+    if ((pte = walkfind(p->pagetable, a, &is_huge)) == NULL) {
+      panic("uvmcopy: pte should exist");
+    } else if (!(*pte & PTE_V)) {
+      panic("uvmcopy: page not present");
+    }
+
+    area = _find_vm_area(p, a, FALSE);
+    if (area == NULL) {
+      // mmap 아닐 때
+      pa = PTE2PA(*pte);
+      if (is_huge) {
+        mem = kalloc_huge();
+      } else {
+        mem = kalloc();
+      }
+      if (mem == NULL) {
+        goto err;
+      }
+
+      page_size = (is_huge) ? HUGEPGSIZE : PGSIZE;
+      memmove(mem, (char*)pa, page_size);
+
+      flags = PTE_FLAGS(*pte);
+      if (flexmappages(np->pagetable, a, page_size, (uint64)mem, is_huge, flags) == -1) {
+        if (is_huge) {
+          kfree_huge(mem);
+        } else {
+          kfree(mem);
+        }
+        goto err;
+      }
+    } else if (area->start == a) {
+      // mmap area의 시작일 때
+      //  mmap 할 때 page-alignment 보장되므로,
+      //  mmap area의 시작이 아니면 이미 지난 iteration에서 처리된 것
+      if (_copy_mmap_area(np, pte, area) == -1) {
+        goto err;
+      }
+    }    
+
+    a += (is_huge) ? HUGEPGSIZE : PGSIZE;
+  }
+  return 0;
+
+err:
+  flexuvmunmap(np->pagetable, 0, a, TRUE);
+  return -1;
+}
+
+/*
+mmap-ed area의 copy 처리.
+area는 NULL이 아니어야 함.
+*/
+int
+_copy_mmap_area(
+  struct proc *np,
+  pte_t *pte,
+  struct vm_area *area
+)
+{
+  uint64 pa = PTE2PA(*pte);
+  int flags = options_to_flags(area->flags);
+  int is_huge = (area->flags & MAP_HUGEPAGE) ? TRUE : FALSE;
+
+  if (area->flags & MAP_SHARED) {
+    // 새 process에 같은 PA로 연결되는 PTE 생성
+    if (flexmappages(np->pagetable, area->start, area->length, pa, is_huge, flags) == -1) {
+      return -1;
+    }
+    // 새 process에 vm_area 추가
+    _add_vm_area(np, area->start, area->length, area->flags, FALSE);
+  } else {
+    // 새 process에 같은 PA로 연결되는 RO PTE 생성
+    flags &= ~PTE_W;
+    if (flexmappages(np->pagetable, area->start, area->length, pa, is_huge, flags) == -1) {
+      return -1;
+    }
+    // 기존 PTE의 prot RO로 수정
+    *pte &= ~PTE_W;
+    // vm_area에 COW 필요하다고 표시
+    area->needs_cow = TRUE;
+    // 새 process에 vm_area 추가
+    _add_vm_area(np, area->start, area->length, area->flags, TRUE);
+  }
+  return 0;
+}
+
+/*
+uvmunmap과 유사.
+start부터 end까지의 PTE를 모두 비움.
+두 주소 모두 page-aligned 되어 있어야 함.
+do_free=TRUE이면 kfree 수행.
+*/
+void
+flexuvmunmap(pagetable_t pagetable, uint64 start, uint64 end, int do_free)
+{
+  uint64 a = start;
+  pte_t *pte;
+  int is_huge;
+
+  if ((start % PGSIZE) != 0 || (end % PGSIZE) != 0)
+    panic("flexuvmunmap: not aligned");
+  
+  while (a < end) {
+    if ((pte = walkfind(pagetable, a, &is_huge)) == NULL)
+      panic("flexuvmunmap: walk");
+    if ((*pte & PTE_V) == 0)
+      panic("flexuvmunmap: not mapped");
+    if (PTE_FLAGS(*pte) == PTE_V)
+      panic("flexuvmunmap: not a leaf");
+
+    if (do_free) {
+      uint64 pa = PTE2PA(*pte);
+      if (is_huge) {
+        kfree_huge((void*)pa);
+      } else {
+        kfree((void*)pa);
+      }
+    }
+    *pte = 0;
+
+    a += (is_huge) ? HUGEPGSIZE : PGSIZE;
+  }
+}
+#endif
 
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.

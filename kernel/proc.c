@@ -110,6 +110,9 @@ allocpid()
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
+/*
+fork에서 새로운 proc 만들기 위해 호출함.
+*/
 static struct proc*
 allocproc(void)
 {
@@ -298,7 +301,12 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  #ifndef SNU
+  if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0)
+  #else
+  if (uvmcopy(p, np, p->sz) < 0)
+  #endif
+  {
     freeproc(np);
     release(&np->lock);
     return -1;

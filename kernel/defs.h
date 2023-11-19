@@ -182,7 +182,13 @@ pagetable_t     uvmcreate(void);
 void            uvmfirst(pagetable_t, uchar *, uint);
 uint64          uvmalloc(pagetable_t, uint64, uint64, int);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
+#ifndef SNU
 int             uvmcopy(pagetable_t, pagetable_t, uint64);
+#else
+int             uvmcopy(struct proc *, struct proc *, uint64);
+int             _copy_mmap_area(struct proc *, pte_t *pte, struct vm_area *);
+void            flexuvmunmap(pagetable_t, uint64, uint64, int);
+#endif
 void            uvmfree(pagetable_t, uint64);
 void            uvmunmap(pagetable_t, uint64, uint64, int);
 void            uvmclear(pagetable_t, uint64);
