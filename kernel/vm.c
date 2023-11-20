@@ -540,6 +540,24 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
 
     a += (is_huge) ? HUGEPGSIZE : PGSIZE;
   }
+
+  // sz 초과하는 영역에 있는 mmap area 처리
+  for (int i=0; i<MMAP_PROC_MAX; i++) {
+    area = p->vm_areas + i;
+    if (!area->is_valid || area->start < sz) {
+      continue;
+    }
+    
+    if ((pte = walkfind(p->pagetable, area->start, NULL)) == NULL) {
+      panic("uvmcopy: pte should exist");
+    } else if (!(*pte & PTE_V)) {
+      panic("uvmcopy: page not present");
+    }
+
+    if (_copy_mmap_area(np, pte, area) == -1) {
+      goto err;
+    }
+  }
   return 0;
 
 err:
