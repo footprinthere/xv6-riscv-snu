@@ -797,7 +797,9 @@ munmap(void *addr)
 
   // vm_area 중 겹치는 다른 것이 없으면 kfree (huge 여부 판정 필요)
   uint64 page_start, page_end;
-  if (area->options & MAP_HUGEPAGE) {
+  if (pa == (uint64) ZEROHUGEPG) {
+    // zero page는 kfree 하지 않음
+  } else if (area->options & MAP_HUGEPAGE) {
     page_start = HUGEPGROUNDDONW(va);
     page_end = page_start + HUGEPGSIZE;
     if (!_is_overlapped(page_start, page_end))
