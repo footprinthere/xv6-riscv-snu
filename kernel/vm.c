@@ -280,7 +280,6 @@ flexmappages(
     if(pte == NULL || *pte & PTE_V)
       return -1;
 
-    // user + RO + valid + (shared)
     *pte = PA2PTE(pa) | pte_flags | PTE_V;
     if (to_zeropg) {
       // zero page로의 lazy mapping이면 W 제거
@@ -483,6 +482,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 /*
 fork() 안에서 호출됨.
 parent의 page table을 child의 page table로 복사.
+np->lock은 이미 잡혀 있음.
 */
 int
 uvmcopy(struct proc *p, struct proc *np, uint64 sz)
@@ -498,13 +498,18 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
   int flags;
 
   while (a < sz) {
-    if ((pte = walkfind(p->pagetable, a, &is_huge)) == NULL) {
+    acquire(&p->lock);
+    pte = walkfind(p->pagetable, a, &is_huge);
+    release(&p->lock);
+    if (pte == NULL) {
       panic("uvmcopy: pte should exist");
     } else if (!(*pte & PTE_V)) {
       panic("uvmcopy: page not present");
     }
 
+    acquire(&p->lock);
     area = _find_vm_area(p, a, FALSE);
+    release(&p->lock);
     if (area == NULL) {
       // mmap 아닐 때
       pa = PTE2PA(*pte);
@@ -534,6 +539,7 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
       //  mmap 할 때 page-alignment 보장되므로,
       //  mmap area의 시작이 아니면 이미 지난 iteration에서 처리된 것
       if (_copy_mmap_area(np, pte, area) == -1) {
+        release(&np->lock);
         goto err;
       }
     }    
@@ -548,7 +554,10 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
       continue;
     }
     
-    if ((pte = walkfind(p->pagetable, area->start, NULL)) == NULL) {
+    acquire(&p->lock);
+    pte = walkfind(p->pagetable, area->start, NULL);
+    release(&p->lock);
+    if (pte == NULL) {
       panic("uvmcopy: pte should exist");
     } else if (!(*pte & PTE_V)) {
       panic("uvmcopy: page not present");

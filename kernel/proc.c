@@ -723,8 +723,12 @@ mmap(void *addr, int length, int prot, int flags)
   struct proc *p = myproc();
   int is_huge = (flags & MAP_HUGEPAGE) ? TRUE : FALSE;
 
-  if (length > MMAP_MAX_SIZE || p->mmap_count >= MMAP_PROC_MAX)
+  acquire(&p->lock);
+  if (length > MMAP_MAX_SIZE || p->mmap_count >= MMAP_PROC_MAX) {
+    release(&p->lock);
     return NULL;
+  }
+  release(&p->lock);
 
   // addr가 page-aligned 되어 있지 않으면 NULL 반환
   if (is_huge && a % HUGEPGSIZE != 0)
@@ -737,9 +741,13 @@ mmap(void *addr, int length, int prot, int flags)
   if (prot & PROT_WRITE) {
     pte_flags |= PTE_R; // W 설정되어 있으면 R 자동 추가
   }
-  if (flexmappages(p->pagetable, a, length, NULL, flags & MAP_HUGEPAGE, pte_flags) == -1)
+  acquire(&p->lock);
+  if (flexmappages(p->pagetable, a, length, NULL, flags & MAP_HUGEPAGE, pte_flags) == -1) {
+    release(&p->lock);
     return NULL;
+  }
   _add_vm_area(p, a, length, prot | flags, FALSE);
+  release(&p->lock);
 
   return addr;
 }
@@ -776,13 +784,17 @@ munmap(void *addr)
   struct proc *p = myproc();
   uint64 va = (uint64)addr;
 
+  acquire(&p->lock);
   struct vm_area *area = _find_vm_area(p, va, TRUE);
+  release(&p->lock);
   
   pte_t *pte;
+  acquire(&p->lock);
   if (area->options & MAP_HUGEPAGE)
     pte = hugewalk(p->pagetable, va, FALSE);
   else
     pte = walk(p->pagetable, va, FALSE);
+  release(&p->lock);
 
   if (pte == NULL)
     return -1;
@@ -823,7 +835,10 @@ munmap_all(void)
   struct vm_area *area;
 
   for (int i=0; i<MMAP_PROC_MAX; i++) {
+    acquire(&p->lock);
     area = p->vm_areas + i;
+    release(&p->lock);
+
     if (!area->is_valid) {
       continue;
     }
@@ -852,7 +867,9 @@ pagefault(uint64 scause, uint64 stval)
     return;
   }
   
+  acquire(&p->lock);
   pte = walkfind(p->pagetable, stval, &is_huge);
+  release(&p->lock);
   if (pte == NULL || !(*pte & PTE_V)) {
     // PTE가 invalid
     printf("pagefault (store - invalid): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
@@ -860,7 +877,9 @@ pagefault(uint64 scause, uint64 stval)
     return;
   }
 
+  acquire(&p->lock);
   area = _find_vm_area(p, stval, FALSE);
+  release(&p->lock);
   if (area == NULL || !(area->options & PROT_WRITE)) {
     // mmap 되지 않았거나 not writable
     printf("pagefault (store - not writable): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
@@ -896,6 +915,7 @@ pagefault(uint64 scause, uint64 stval)
 /*
 proc의 mmap_area를 순회하며 빈 자리를 찾아 새로운 area 저장.
 빈 자리가 없으면 -1 반환.
+p->lock 잡은 채로 호출해야 함.
 */
 int
 _add_vm_area(
@@ -927,6 +947,7 @@ _add_vm_area(
 /*
 proc의 mmap_area를 순회하며 주어진 주소가 포함되는 vm_area 찾아 반환.
 해당하는 것이 없으면 NULL 반환.
+p->lock 잡은 채로 호출해야 함.
 */
 struct vm_area *
 _find_vm_area(struct proc *p, uint64 addr, int pop)
