@@ -787,6 +787,10 @@ munmap(void *addr)
   acquire(&p->lock);
   struct vm_area *area = _find_vm_area(p, va, TRUE);
   release(&p->lock);
+
+  if (area == NULL) {
+    return -1;
+  }
   
   pte_t *pte;
   acquire(&p->lock);
