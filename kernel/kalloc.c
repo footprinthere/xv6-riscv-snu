@@ -222,9 +222,7 @@ kalloc(void)
   }
   return (void*)r;
 }
-#endif
 
-#ifdef SNU
 void *
 kalloc_huge(void)
 {
@@ -287,5 +285,25 @@ kfree_huge(void *pa)
   freemem += PGINHUGEPG;
   used2m -= 1;
   release(&memstat_lock);
+}
+
+void *
+kalloc_flex(int is_huge)
+{
+  if (is_huge) {
+    return kalloc_huge();
+  } else {
+    return kalloc();
+  }
+}
+
+void
+kfree_flex(void *pa, int is_huge)
+{
+  if (is_huge) {
+    kfree_huge(pa);
+  } else {
+    kfree(pa);
+  }
 }
 #endif

@@ -66,6 +66,8 @@ void            kinit(void);
 #ifdef SNU
 void*           kalloc_huge(void);
 void            kfree_huge(void *);
+void*           kalloc_flex(int);
+void            kfree_flex(void *, int);
 extern int      freemem, used4k, used2m;
 extern struct spinlock memstat_lock;
 #endif

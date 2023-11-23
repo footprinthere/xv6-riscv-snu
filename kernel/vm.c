@@ -513,11 +513,7 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
     if (area == NULL) {
       // mmap 아닐 때
       pa = PTE2PA(*pte);
-      if (is_huge) {
-        mem = kalloc_huge();
-      } else {
-        mem = kalloc();
-      }
+      mem = kalloc_flex(is_huge);
       if (mem == NULL) {
         goto err;
       }
@@ -527,11 +523,7 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
 
       flags = PTE_FLAGS(*pte);
       if (flexmappages(np->pagetable, a, page_size, (uint64)mem, is_huge, flags) == -1) {
-        if (is_huge) {
-          kfree_huge(mem);
-        } else {
-          kfree(mem);
-        }
+        kfree_flex(mem, is_huge);
         goto err;
       }
     } else if (area->start == a) {
@@ -639,11 +631,7 @@ flexuvmunmap(pagetable_t pagetable, uint64 start, uint64 end, int do_free)
 
     if (do_free) {
       uint64 pa = PTE2PA(*pte);
-      if (is_huge) {
-        kfree_huge((void*)pa);
-      } else {
-        kfree((void*)pa);
-      }
+      kfree_flex((void *)pa, is_huge);
     }
     *pte = 0;
 
