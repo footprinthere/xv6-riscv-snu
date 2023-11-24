@@ -278,8 +278,11 @@ flexmappages(
     } else {
       pte = walk(pagetable, a, TRUE);
     }
-    if(pte == NULL || *pte & PTE_V)
+    if(pte == NULL || (!is_huge && *pte & PTE_V)) {
+      // huge인 경우 이미 4K로 할당된 적 있는 공간이라면
+      // level 1 PTE가 valid일 수도 있음
       return -1;
+    }
 
     *pte = PA2PTE(pa) | pte_flags;
 
