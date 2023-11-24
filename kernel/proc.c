@@ -802,29 +802,6 @@ munmap(void *addr)
     return -1;
   }
 
-  // shared이면 공유하는 다른 process가 있는지 검사
-  struct shared_page *shpg;
-  int is_idle = TRUE;
-  if (area->options & MAP_SHARED) {
-    shpg = find_shpg(area->idx, va);
-    if (shpg == NULL) {
-      // mmap만 하고 실제 할당은 안 했을 때
-      is_idle = FALSE;
-    } else {
-      acquire(&shpg->lock);
-      if (--(shpg->ref_count) == 0) {
-        // 더 이상 쓰이지 않으면 vm area를 invalid로 표시하고 shared page 초기화
-        area->is_valid = FALSE;
-        shpg->vma_idx = -1;
-        shpg->start_va = 0;
-        shpg->pte = 0;
-      } else {
-        is_idle = FALSE;
-      }
-      release(&shpg->lock);
-    }
-  }
-
   uint64 a = va;
   uint64 last = va + area->length - 1;
   int is_huge = (area->options & MAP_HUGEPAGE) ? TRUE : FALSE;
@@ -836,6 +813,9 @@ munmap(void *addr)
 
   pte_t *pte;
   uint64 pa;
+  struct shared_page *shpg;
+  int is_idle = TRUE;
+
   while (a <= last) {
     acquire(&p->lock);
     if (is_huge) {
@@ -847,6 +827,37 @@ munmap(void *addr)
     if (pte == NULL || PTE_FLAGS(*pte) == PTE_V) {
       // PTE가 없거나 leaf가 아니면 fail
       return -1;
+    }
+
+    // FIXME:
+    //  shard로 mmap 한 다음에 fork 하고
+    //  child만 write 해서 alloc 한 다음 exit 했을 때
+    //  parent는 아직 shpg를 참조하고 있지 않기 때문에
+    //  idle로 판정되어 지워져버림
+
+    // shared이면 공유하고 있는 다른 mapping이 있는지 검사
+    is_idle = TRUE;
+    if (area->options & MAP_SHARED) {
+      shpg = find_shpg(area->idx, a);
+      if (shpg == NULL) {
+        // mmap만 하고 실제 할당은 안 했을 때
+        is_idle = FALSE;
+      } else {
+        acquire(&shpg->lock);
+        if (shpg->ref_count <= 0) {
+          panic("munmap: shared page ref_count <= 0");
+        }
+        if (--(shpg->ref_count) == 0) {
+          // 더 이상 쓰이지 않으면 vm area를 invalid로 표시하고 shared page 초기화
+          area->is_valid = FALSE;
+          shpg->vma_idx = -1;
+          shpg->start_va = 0;
+          shpg->pte = 0;
+        } else {
+          is_idle = FALSE;
+        }
+        release(&shpg->lock);
+      }
     }
 
     // PTE 내용 지워서 map 해제
