@@ -569,7 +569,6 @@ copy_mmap_area(pagetable_t pagetable, struct vm_area *area, struct proc *np) {
 
   pte_t *pte;
   uint64 pa;
-  struct shared_page *shpg;
   int page_size = (is_huge) ? HUGEPGSIZE : PGSIZE;
 
   while (a <= last) {
@@ -585,11 +584,8 @@ copy_mmap_area(pagetable_t pagetable, struct vm_area *area, struct proc *np) {
         return -1;
       }
 
-      // shared page의 ref count 증가시킴
-      shpg = get_shpg(pa);
-      acquire(&shpg->lock);
-      shpg->ref_count++;
-      release(&shpg->lock);
+      // vm area의 count 증가시킴
+      area->shared_count++;
     } else {
       // private -> 새 process에 같은 PA로 연결되는 RO PTE 생성
       *pte &= ~PTE_W;

@@ -91,14 +91,14 @@ struct vm_area {
   uint64 start;
   uint64 end;
   uint64 length;
-  int options;    // PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE, MAP_HUGEPAGE
+  int options;        // PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE, MAP_HUGEPAGE
   int needs_cow;
+  int shared_count;   // N개가 공유하고 있으면 N-1 (0이면 혼자만 쓰고 있는 것)
 };
 
 struct shared_page {
-  int vma_idx;  // TODO: -1로 초기화 해야 할 듯
+  int vma_idx;
   uint64 start_va;
-  int ref_count;
   pte_t pte;
   struct spinlock lock;
 };
