@@ -920,7 +920,7 @@ pagefault(uint64 scause, uint64 stval)
     return;
   }
 
-  if (area->options && MAP_SHARED) {
+  if (area->options & MAP_SHARED) {
     // shared area
     handle_shared_fault(p, pte, stval, area, is_huge);
     release(&p->lock);
