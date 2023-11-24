@@ -49,7 +49,7 @@ kinit()
   used2m = 0;
   release(&memstat_lock);
 
-  // 상수 위치에 zero pager 할당
+  // 상수 위치에 zero huge page 할당
   struct hugepage_entry *zeropage = hugepages + HUGEPGINDEX(ZEROHUGEPG);
   acquire(&zeropage->lock);
   zeropage->hugealloced = TRUE;
@@ -174,23 +174,18 @@ kalloc(void)
 #else
 /*
 hugepage->freelist의 맨 앞에서 run 하나 꺼내고 freecount 감소시킴.
+hugepage->hugealloced = FALSE여야 함.
 hugepage->lock 잡은 상태에서 호출해야 함.
 freelist가 비어 있었다면 NULL 반환.
 */
 struct run *
 _pop_page(struct hugepage_entry *hugepage)
 {
-  struct run *r;
-
-  if (hugepage->hugealloced)
-    panic("_pop_page: hugealloced");
-
-  r = hugepage->freelist;
+  struct run *r = hugepage->freelist;
   if (r) {
     hugepage->freelist = r->next;
     hugepage->freecount--;
   }
-
   return r;
 }
 

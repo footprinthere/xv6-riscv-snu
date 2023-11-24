@@ -938,7 +938,6 @@ pagefault(uint64 scause, uint64 stval)
   if (pte == NULL) {
     // PTE가 없으면 kill
     release(&p->lock);
-    printf("pagefault (PTE not found): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
     setkilled(p);
     return;
   }
@@ -947,7 +946,6 @@ pagefault(uint64 scause, uint64 stval)
   if (area == NULL) {
     // mmap area가 아니면 kill
     release(&p->lock);
-    printf("pagefault (area not found): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
     setkilled(p);
     return;
   }
@@ -967,7 +965,6 @@ pagefault(uint64 scause, uint64 stval)
   if (scause == SCAUSE_LOAD) {
     release(&p->lock);
     // shared가 아닌데 load이면 진짜 못 읽는 것
-    printf("pagefault (load): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
     setkilled(p);
     return;
   }
@@ -976,7 +973,6 @@ pagefault(uint64 scause, uint64 stval)
   if (!(area->options & PROT_WRITE)) {
     // not writable이면 kill
     release(&p->lock);
-    printf("pagefault (store): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
     setkilled(p);
     return;
   }
@@ -1055,7 +1051,7 @@ handle_private_fault
 
   if (area->needs_cow) {
     // allocated
-    area->needs_cow = FALSE;  // TODO: needs_cow 다시 점검해보자
+    area->needs_cow = FALSE;
     memmove(mem, (void*)PTE2PA(*pte), (is_huge) ? HUGEPGSIZE : PGSIZE);
   } else {
     // zero-mapped
