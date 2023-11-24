@@ -736,6 +736,15 @@ mmap(void *addr, int length, int prot, int flags)
   if (!is_huge && a % PGSIZE != 0)
     return NULL;
 
+  // prot나 flag가 잘못되었으면 NULL 반환
+  if (!(prot & PROT_READ) && !(prot & PROT_WRITE)) {
+    return NULL;
+  }
+  if (!(flags & MAP_PRIVATE) && !(flags & MAP_SHARED)) {
+    return NULL;
+  }
+
+  // 공간의 최대 크기나 최대 개수를 초과하면 NULL 반환
   acquire(&p->lock);
   int mmap_count = p->mmap_count;
   release(&p->lock);
