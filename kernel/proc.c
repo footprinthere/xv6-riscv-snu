@@ -745,9 +745,6 @@ mmap(void *addr, int length, int prot, int flags)
 
   // zero page로 연결되는 PTE 생성
   int pte_flags = options_to_flags(prot | flags);
-  if (prot & PROT_WRITE) {
-    pte_flags |= PTE_R; // W 설정되어 있으면 R 자동 추가
-  }
   acquire(&p->lock);
   if (flexmappages(p->pagetable, a, length, NULL, flags & MAP_HUGEPAGE, pte_flags) == -1) {
     release(&p->lock);
@@ -765,13 +762,15 @@ mmap 옵션을 받아 PTE flags로 변환
 int
 options_to_flags(int options)
 {
-  int pte_flags = PTE_U;
+  int pte_flags = PTE_U | PTE_V;
   if (options & PROT_READ)
     pte_flags |= PTE_R;
   if (options & PROT_WRITE)
-    pte_flags |= PTE_W;
-  if (options & MAP_SHARED)
+    pte_flags |= (PTE_W | PTE_R);
+  if (options & MAP_SHARED) {
     pte_flags |= PTE_SHR;
+    pte_flags &= ~PTE_V;  // shared이면 invalid로 표시
+  }
   return pte_flags;
 }
 

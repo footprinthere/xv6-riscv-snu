@@ -269,6 +269,7 @@ flexmappages(
   if (pa == NULL || pa == (uint64)ZEROHUGEPG) {
     pa = (uint64)ZEROHUGEPG;
     to_zeropg = TRUE;
+    pte_flags &= ~PTE_W;  // lazy mapping이면 W 제거
   }
 
   while (a <= last) {
@@ -281,14 +282,6 @@ flexmappages(
       return -1;
 
     *pte = PA2PTE(pa) | pte_flags;
-    if (to_zeropg) {
-      // zero page로의 lazy mapping이면 W 제거
-      *pte &= ~PTE_W;
-    }
-    if (!to_zeropg || !(pte_flags & PTE_SHR)) {
-      // zero page로 연결되는 shared area의 경우 invalid로 표시
-      *pte |= PTE_V;
-    }
 
     if (is_huge) {
       a += HUGEPGSIZE;
