@@ -60,6 +60,8 @@ kinit()
   freemem -= PGINHUGEPG;
   used2m += 1;
   release(&memstat_lock);
+
+  init_shpg();
 }
 
 void

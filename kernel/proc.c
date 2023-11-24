@@ -1131,6 +1131,21 @@ get_vma(struct proc *p, uint64 addr, int pop)
   return NULL;
 }
 
+void
+init_shpg(void)
+{
+  struct shared_page *shpg;
+
+  for (int i=0; i<MAXPGS; i++) {
+    shpg = shared_pages + i;
+    initlock(&shpg->lock, "shared page");
+    shpg->vma_idx = -1;
+    shpg->start_va = 0;
+    shpg->ref_count = 0;
+    shpg->pte = 0;
+  }
+}
+
 /*
 2^15 배열에서 PA에 맞는 shared page를 반환.
 */

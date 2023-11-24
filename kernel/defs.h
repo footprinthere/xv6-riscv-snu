@@ -129,6 +129,7 @@ struct vm_area* find_empty_vma(void);
 int             add_vma(struct proc *, uint64, uint64, int, int);
 int             share_vma(struct proc *, struct vm_area *);
 struct vm_area* get_vma(struct proc *, uint64, int);
+void                    init_shpg(void);
 struct shared_page *    get_shpg(uint64);
 struct shared_page *    find_shpg(int, uint64);
 extern int      pagefaults;
