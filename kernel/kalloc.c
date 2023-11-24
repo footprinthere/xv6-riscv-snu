@@ -102,33 +102,46 @@ kfree(void *pa)
 }
 
 #else
+int
+_is_duplicate(struct hugepage_entry *hugepage, void *pa)
+{
+  struct run *r;
+
+  r = hugepage->freelist;
+  while (r) {
+    if ((void *)r == pa) {
+      return TRUE;
+    }
+    r = r->next;
+  }
+  return FALSE;
+}
+
 void
 kfree(void *pa)
 {
-  struct run *r;
-  struct hugepage_entry *hugepage;
-
   // align이 안 맞거나 할당 가능 공간 범위를 넘어서면
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // TODO: freelist에 이미 있으면 (kalloc 된 적 없으면) fail
+  // 주소에 해당하는 hugepage entry 찾기
+  struct hugepage_entry *hgpg = hugepages + HUGEPGINDEX(pa);
+  if (_is_duplicate(hgpg, pa)) {
+    panic("kfree");
+  }
 
   // Fill with junk
   memset(pa, 1, PGSIZE);
 
   // page를 freelist의 node로 cast
-  r = (struct run*)pa;
-  
-  // 주소에 해당하는 hugepage entry 찾기
-  hugepage = hugepages + HUGEPGINDEX(pa);
+  struct run *r = (struct run*)pa;
 
   // freelist의 맨 앞에 페이지 추가
-  acquire(&hugepage->lock);
-  r->next = hugepage->freelist;
-  hugepage->freelist = r;
-  hugepage->freecount++;
-  release(&hugepage->lock);
+  acquire(&hgpg->lock);
+  r->next = hgpg->freelist;
+  hgpg->freelist = r;
+  hgpg->freecount++;
+  release(&hgpg->lock);
 
   acquire(&memstat_lock);
   freemem++;
