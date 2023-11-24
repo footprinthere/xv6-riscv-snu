@@ -1,4 +1,5 @@
 #define MMAP_MAX_SIZE   (1 << 26)
+#define MMAP_GLOBAL_MAX 64
 #define MMAP_PROC_MAX   4
 
 // Saved registers for kernel context switches.
@@ -85,12 +86,21 @@ struct trapframe {
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 struct vm_area {
+  int idx;
   int is_valid;
   uint64 start;
   uint64 end;
   uint64 length;
   int options;    // PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE, MAP_HUGEPAGE
   int needs_cow;
+};
+
+struct shared_page {
+  int vma_idx;  // TODO: -1로 초기화 해야 할 듯
+  uint64 start_va;
+  int ref_count;
+  pte_t pte;
+  struct spinlock lock;
 };
 
 // Per-process state
@@ -118,6 +128,6 @@ struct proc {
   char name[16];               // Process name (debugging)
 
   // mmap
-  struct vm_area vm_areas[MMAP_PROC_MAX]; // 할당된 공간의 정보
+  struct vm_area *mmap[MMAP_PROC_MAX];
   int mmap_count;                         // 할당된 공간의 개수 (<= 4)
 };

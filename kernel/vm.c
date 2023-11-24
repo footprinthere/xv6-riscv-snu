@@ -259,8 +259,8 @@ flexmappages(
     panic("flexmappages: size");
 
   if (is_huge) {
-    a = HUGEPGROUNDDONW(va);
-    last = HUGEPGROUNDDONW(va + size - 1);
+    a = HUGEPGROUNDDOWN(va);
+    last = HUGEPGROUNDDOWN(va + size - 1);
   } else {
     a = PGROUNDDOWN(va);
     last = PGROUNDDOWN(va + size - 1);
@@ -280,10 +280,14 @@ flexmappages(
     if(pte == NULL || *pte & PTE_V)
       return -1;
 
-    *pte = PA2PTE(pa) | pte_flags | PTE_V;
+    *pte = PA2PTE(pa) | pte_flags;
     if (to_zeropg) {
       // zero page로의 lazy mapping이면 W 제거
       *pte &= ~PTE_W;
+    }
+    if (!to_zeropg || !(pte_flags & PTE_SHR)) {
+      // zero page로 연결되는 shared area의 경우 invalid로 표시
+      *pte |= PTE_V;
     }
 
     if (is_huge) {
@@ -508,57 +512,46 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
     }
 
     acquire(&p->lock);
-    area = _find_vm_area(p, a, FALSE);
+    area = get_vma(p, a, FALSE);
     release(&p->lock);
-    if (area == NULL) {
-      // mmap 아닐 때
-      pa = PTE2PA(*pte);
-      mem = kalloc_flex(is_huge);
-      if (mem == NULL) {
-        goto err;
-      }
+    if (area != NULL) {
+      // mmap area는 따로 처리
+      continue;
+    }
 
-      page_size = (is_huge) ? HUGEPGSIZE : PGSIZE;
-      memmove(mem, (char*)pa, page_size);
+    // mmap 아닐 때
+    pa = PTE2PA(*pte);
+    mem = kalloc_flex(is_huge);
+    if (mem == NULL) {
+      goto err;
+    }
 
-      flags = PTE_FLAGS(*pte);
-      if (flexmappages(np->pagetable, a, page_size, (uint64)mem, is_huge, flags) == -1) {
-        kfree_flex(mem, is_huge);
-        goto err;
-      }
-    } else if (area->start == a) {
-      // mmap area의 시작일 때
-      //  mmap 할 때 page-alignment 보장되므로,
-      //  mmap area의 시작이 아니면 이미 지난 iteration에서 처리된 것
-      if (_copy_mmap_area(np, pte, area) == -1) {
-        release(&np->lock);
-        goto err;
-      }
-    }    
+    page_size = (is_huge) ? HUGEPGSIZE : PGSIZE;
+    memmove(mem, (char*)pa, page_size);
+
+    flags = PTE_FLAGS(*pte);
+    if (flexmappages(np->pagetable, a, page_size, (uint64)mem, is_huge, flags) == -1) {
+      kfree_flex(mem, is_huge);
+      goto err;
+    } 
 
     a += (is_huge) ? HUGEPGSIZE : PGSIZE;
   }
 
-  // sz 초과하는 영역에 있는 mmap area 처리
+  // mmap area 처리
   for (int i=0; i<MMAP_PROC_MAX; i++) {
-    area = p->vm_areas + i;
-    if (!area->is_valid || area->start < sz) {
+    area = p->mmap[i];
+    if (area == NULL) {
       continue;
     }
-    
     acquire(&p->lock);
-    pte = walkfind(p->pagetable, area->start, NULL);
-    release(&p->lock);
-    if (pte == NULL) {
-      panic("uvmcopy: pte should exist");
-    } else if (!(*pte & PTE_V)) {
-      panic("uvmcopy: page not present");
-    }
-
-    if (_copy_mmap_area(np, pte, area) == -1) {
+    if (copy_mmap_area(p->pagetable, area, np) == -1) {
+      release(&p->lock);
       goto err;
     }
+    release(&p->lock);
   }
+
   return 0;
 
 err:
@@ -567,41 +560,68 @@ err:
 }
 
 /*
-mmap-ed area의 copy 처리.
+mmap area 하나의 copy를 처리.
 area는 NULL이 아니어야 함.
 */
 int
-_copy_mmap_area(
-  struct proc *np,
-  pte_t *pte,
-  struct vm_area *area
-)
-{
-  uint64 pa = PTE2PA(*pte);
+copy_mmap_area(pagetable_t pagetable, struct vm_area *area, struct proc *np) {
+  uint64 a = area->start;
+  uint64 last = area->start + area->length - 1;
   int is_huge = (area->options & MAP_HUGEPAGE) ? TRUE : FALSE;
-  int flags;
+  if (is_huge) {
+    last = HUGEPGROUNDDOWN(last);
+  } else {
+    last = PGROUNDDOWN(last);
+  }
+
+  pte_t *pte;
+  uint64 pa;
+  struct shared_page *shpg;
+  int page_size = (is_huge) ? HUGEPGSIZE : PGSIZE;
+
+  while (a <= last) {
+    pte = walkfind(pagetable, a, NULL);
+    if (pte == NULL) {
+      panic("uvmcopy (mmap): pte should exist");
+    } else if (!(*pte & PTE_V)) {
+      panic("uvmcopy (mmap): page not present");
+    }
+
+    if (area->options & MAP_SHARED) {
+      // shared -> 새 process에 같은 PA로 연결되는 PTE 생성
+      pa = PTE2PA(*pte);
+      if (flexmappages(np->pagetable, a, page_size, pa, is_huge, PTE_FLAGS(*pte)) == -1) {
+        return -1;
+      }
+
+      // shared page의 ref count 증가시킴
+      shpg = get_shpg(pa);
+      acquire(&shpg->lock);
+      shpg->ref_count++;
+      release(&shpg->lock);
+    } else {
+      // private -> 새 process에 같은 PA로 연결되는 RO PTE 생성
+      *pte &= ~PTE_W;
+      pa = PTE2PA(*pte);
+      if (flexmappages(np->pagetable, a, page_size, pa, is_huge, PTE_FLAGS(*pte)) == -1) {
+        return -1;
+      }
+    }
+
+    a += page_size;
+  }
 
   if (area->options & MAP_SHARED) {
-    // 새 process에 같은 PA로 연결되는 PTE 생성
-    flags = PTE_FLAGS(*pte);
-    if (flexmappages(np->pagetable, area->start, area->length, pa, is_huge, flags) == -1) {
-      return -1;
-    }
-    // 새 process에 vm_area 추가
-    _add_vm_area(np, area->start, area->length, area->options, FALSE);
+    // 같은 vm area 공유
+    share_vma(np, area);
   } else {
-    // 기존 PTE의 prot RO로 수정
-    *pte &= ~PTE_W;
-    // vm_area에 COW 필요하다고 표시
+    // 기존 area에 COW 필요하다고 표시
+    // TODO: 이렇게 해놓으면 양쪽 다 COW 했을 떄 원래 공간은 free 처리가 안 됨
     area->needs_cow = TRUE;
-    // 새 process에 같은 PA로 연결되는 RO PTE 생성
-    flags = PTE_FLAGS(*pte);
-    if (flexmappages(np->pagetable, area->start, area->length, pa, is_huge, flags) == -1) {
-      return -1;
-    }
-    // 새 process에 vm_area 추가
-    _add_vm_area(np, area->start, area->length, area->options, TRUE);
+    // 새 area 추가
+    add_vma(np, area->start, area->length, area->options, TRUE);
   }
+
   return 0;
 }
 

@@ -110,6 +110,8 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
+  // TODO: freelist에 이미 있으면 (kalloc 된 적 없으면) fail
+
   // Fill with junk
   memset(pa, 1, PGSIZE);
 

@@ -17,6 +17,9 @@ struct spinlock pid_lock;
 
 #ifdef SNU
 int pagefaults;
+
+struct vm_area mmap_areas[MMAP_GLOBAL_MAX] = {0};
+struct shared_page shared_pages[MAXPGS] = {0};
 #endif
 
 extern void forkret(void);
@@ -178,7 +181,7 @@ freeproc(struct proc *p)
   p->state = UNUSED;
   
   for (int i=0; i<MMAP_PROC_MAX; i++) {
-    p->vm_areas[i].is_valid = FALSE;
+    p->mmap[i] = NULL;
   }
   p->mmap_count = 0;
 }
@@ -623,6 +626,10 @@ kill(int pid)
   return -1;
 }
 
+/*
+process를 killed로 표시.
+p->lock 잡고 있으면 안 됨.
+*/
 void
 setkilled(struct proc *p)
 {
@@ -723,18 +730,18 @@ mmap(void *addr, int length, int prot, int flags)
   struct proc *p = myproc();
   int is_huge = (flags & MAP_HUGEPAGE) ? TRUE : FALSE;
 
-  acquire(&p->lock);
-  if (length > MMAP_MAX_SIZE || p->mmap_count >= MMAP_PROC_MAX) {
-    release(&p->lock);
-    return NULL;
-  }
-  release(&p->lock);
-
   // addr가 page-aligned 되어 있지 않으면 NULL 반환
   if (is_huge && a % HUGEPGSIZE != 0)
     return NULL;
   if (!is_huge && a % PGSIZE != 0)
     return NULL;
+
+  acquire(&p->lock);
+  int mmap_count = p->mmap_count;
+  release(&p->lock);
+  if (length > MMAP_MAX_SIZE || mmap_count >= MMAP_PROC_MAX) {
+    return NULL;
+  }
 
   // zero page로 연결되는 PTE 생성
   int pte_flags = options_to_flags(prot | flags);
@@ -746,7 +753,7 @@ mmap(void *addr, int length, int prot, int flags)
     release(&p->lock);
     return NULL;
   }
-  _add_vm_area(p, a, length, prot | flags, FALSE);
+  add_vma(p, a, length, prot | flags, FALSE);
   release(&p->lock);
 
   return addr;
@@ -785,47 +792,75 @@ munmap(void *addr)
   uint64 va = (uint64)addr;
 
   acquire(&p->lock);
-  struct vm_area *area = _find_vm_area(p, va, TRUE);
+  struct vm_area *area = get_vma(p, va, TRUE);
   release(&p->lock);
-
   if (area == NULL) {
     return -1;
   }
-  
-  pte_t *pte;
-  acquire(&p->lock);
-  if (area->options & MAP_HUGEPAGE)
-    pte = hugewalk(p->pagetable, va, FALSE);
-  else
-    pte = walk(p->pagetable, va, FALSE);
-  release(&p->lock);
 
-  if (pte == NULL)
+  // area의 시작 주소가 아니면 fail (alignment도 보장 가능)
+  if (va != area->start) {
     return -1;
-  if ((*pte & PTE_V) == 0)
-    return -1;    // invalid (not mapped)
-  if (PTE_FLAGS(*pte) == PTE_V)
-    return -1;    // not a leaf
-
-  // pte 내용 지워서 map 해제
-  uint64 pa = PTE2PA(*pte);
-  *pte = 0;
-
-  // vm_area 중 겹치는 다른 것이 없으면 kfree (huge 여부 판정 필요)
-  uint64 page_start, page_end;
-  if (pa == (uint64) ZEROHUGEPG) {
-    // zero page는 kfree 하지 않음
-  } else if (area->options & MAP_HUGEPAGE) {
-    page_start = HUGEPGROUNDDONW(va);
-    page_end = page_start + HUGEPGSIZE;
-    if (!_is_overlapped(page_start, page_end))
-      kfree_huge((void*)pa);
-  } else {
-    page_start = PGROUNDDOWN(va);
-    page_end = page_start + PGSIZE;
-    if (!_is_overlapped(page_start, page_end))
-      kfree((void*)pa);
   }
+
+  // shared이면 공유하는 다른 process가 있는지 검사
+  struct shared_page *shpg;
+  int is_idle = TRUE;
+  if (area->options & MAP_SHARED) {
+    shpg = find_shpg(area->idx, va);
+    if (shpg == NULL) {
+      // mmap만 하고 실제 할당은 안 했을 때
+      is_idle = FALSE;
+    } else {
+      acquire(&shpg->lock);
+      if (--(shpg->ref_count) == 0) {
+        // 더 이상 쓰이지 않으면 vm area를 invalid로 표시하고 shared page 초기화
+        area->is_valid = FALSE;
+        shpg->vma_idx = -1;
+        shpg->start_va = 0;
+        shpg->pte = 0;
+      } else {
+        is_idle = FALSE;
+      }
+      release(&shpg->lock);
+    }
+  }
+
+  uint64 a = va;
+  uint64 last = va + area->length - 1;
+  int is_huge = (area->options & MAP_HUGEPAGE) ? TRUE : FALSE;
+  if (is_huge) {
+    last = HUGEPGROUNDDOWN(last);
+  } else {
+    last = PGROUNDDOWN(last);
+  }
+
+  pte_t *pte;
+  uint64 pa;
+  while (a <= last) {
+    acquire(&p->lock);
+    if (is_huge) {
+      pte = hugewalk(p->pagetable, a, FALSE);
+    } else {
+      pte = walk(p->pagetable, a, FALSE);
+    }
+    release(&p->lock);
+    if (pte == NULL || PTE_FLAGS(*pte) == PTE_V) {
+      // PTE가 없거나 leaf가 아니면 fail
+      return -1;
+    }
+
+    // PTE 내용 지워서 map 해제
+    pa = PTE2PA(*pte);
+    *pte = 0;
+    // 더 이상 쓰이지 않으면 kfree
+    if (is_idle) {
+      kfree_flex((void *)pa, is_huge);
+    }
+
+    a += (is_huge) ? HUGEPGSIZE : PGSIZE;
+  }
+
   return 0;
 }
 
@@ -837,16 +872,19 @@ munmap_all(void)
 {
   struct proc *p = myproc();
   struct vm_area *area;
+  void *addr;
 
   for (int i=0; i<MMAP_PROC_MAX; i++) {
     acquire(&p->lock);
-    area = p->vm_areas + i;
-    release(&p->lock);
-
-    if (!area->is_valid) {
+    area = p->mmap[i];
+    if (area == NULL) {
+      release(&p->lock);
       continue;
     }
-    if (munmap((void *)area->start) == -1) {
+    addr = (void *)area->start;
+    release(&p->lock);
+
+    if (munmap(addr) == -1) {
       return -1;
     }
   }
@@ -858,62 +896,156 @@ pagefault(uint64 scause, uint64 stval)
 {
   struct proc *p = myproc();
   pte_t *pte;
-  int is_huge;
   struct vm_area *area;
-  char *mem;
+  int is_huge;
 
   pagefaults++;
+  acquire(&p->lock);
 
-  if (scause == SCAUSE_LOAD) {
-    // load fault면 진짜 못 읽는 것
+  pte = walkfind(p->pagetable, stval, &is_huge);
+  if (pte == NULL) {
+    // PTE가 없으면 kill
+    release(&p->lock);
+    printf("pagefault (PTE not found): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
+    setkilled(p);
+    return;
+  }
+
+  area = get_vma(p, stval, FALSE);
+  if (area == NULL) {
+    // mmap area가 아니면 kill
+    release(&p->lock);
+    printf("pagefault (area not found): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
+    setkilled(p);
+    return;
+  }
+
+  if (area->options && MAP_SHARED) {
+    // shared area
+    handle_shared_fault(p, pte, stval, area, is_huge);
+    release(&p->lock);
+    return;
+  } else if (scause == SCAUSE_LOAD) {
+    release(&p->lock);
+    // shared가 아닌데 load이면 진짜 못 읽는 것
     printf("pagefault (load): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
     setkilled(p);
     return;
   }
-  
-  acquire(&p->lock);
-  pte = walkfind(p->pagetable, stval, &is_huge);
-  release(&p->lock);
-  if (pte == NULL || !(*pte & PTE_V)) {
-    // PTE가 invalid
-    printf("pagefault (store - invalid): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
+
+  // 이제부터 전부 store, private
+  if (!(area->options & PROT_WRITE)) {
+    // not writable이면 kill
+    release(&p->lock);
+    printf("pagefault (store): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
     setkilled(p);
     return;
   }
 
-  acquire(&p->lock);
-  area = _find_vm_area(p, stval, FALSE);
+  handle_private_fault(p, pte, stval, area, is_huge);
   release(&p->lock);
-  if (area == NULL || !(area->options & PROT_WRITE)) {
-    // mmap 되지 않았거나 not writable
-    printf("pagefault (store - not writable): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
-    printf("                                  area=%p\n", area);
-    setkilled(p);
-    return;
-  }
+}
 
-  if (is_huge) {
-    mem = kalloc_huge();
+/*
+shared 영역에 대한 store/load fault 처리.
+area는 NULL이 아니어야 함.
+*/
+void
+handle_shared_fault
+(
+  struct proc *p,
+  pte_t *pte,
+  uint64 va,
+  struct vm_area *area,
+  int is_huge
+)
+{
+  // load 이면
+  uint64 start_va = (is_huge) ? HUGEPGROUNDDOWN(va) : PGROUNDDOWN(va);
+  struct shared_page *shpg = find_shpg(area->idx, start_va);
+  char *mem;
+
+  if (shpg == NULL) {
+    // 최초 시도 -> 새 PP 핼당 필요
+    mem = kalloc_flex(is_huge);
+    if (mem == NULL) {
+      panic("pagefault: kalloc failed\n");
+    }
+
+    // 0으로 채우고 권한 설정
+    memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
+    *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R;
+    if (area->options & PROT_WRITE) {
+      *pte |= PTE_W;
+    }
+
+    shpg = get_shpg((uint64)mem);
+    acquire(&shpg->lock);
+    if (shpg->ref_count > 0) {
+      panic("pagefault: shared page already in use");
+    }
+    shpg->vma_idx = area->idx;
+    shpg->start_va = start_va;
+    shpg->ref_count++;
+    shpg->pte = *pte;
+    release(&shpg->lock);
   } else {
-    mem = kalloc();
+    // 이미 존재 -> 동일 위치에 할당
+    acquire(&shpg->lock);
+    *pte = shpg->pte;
+    shpg->ref_count++;
+    release(&shpg->lock);
   }
-  if (!mem) {
-    panic("pagefault: kalloc failed");
+}
+
+/*
+private, writable 영역에 대한 store fault 처리.
+area는 NULL이 아니어야 함.
+*/
+void
+handle_private_fault
+(
+  struct proc *p,
+  pte_t *pte,
+  uint64 va,
+  struct vm_area *area,
+  int is_huge
+)
+{
+  char *mem = kalloc_flex(is_huge);
+  if (mem == NULL) {
+    panic("pagefault: kalloc failed\n");
   }
 
   if (area->needs_cow) {
-    // private, allocated
-    area->needs_cow = FALSE;
+    // allocated
+    area->needs_cow = FALSE;  // TODO: needs_cow 다시 점검해보자
     memmove(mem, (void*)PTE2PA(*pte), (is_huge) ? HUGEPGSIZE : PGSIZE);
   } else {
-    // zero page
+    // zero-mapped
     memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
-    if (area->options & MAP_SHARED) {
-      // shared
-      // TODO: 같은 공간에 연결된 모든 process의 PTE 수정
-    }
   }
   *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R | PTE_W;
+}
+
+/*
+vm area들의 global 배열 중에서
+쓰이지 않고 비어 있는 것을 찾아 반환.
+없으면 NULL 반환.
+*/
+struct vm_area *
+find_empty_vma(void)
+{
+  struct vm_area *area;
+
+  for (int i=0; i<MMAP_GLOBAL_MAX; i++) {
+    area = mmap_areas + i;
+    if (!area->is_valid) {
+      area->idx = i;
+      return area;
+    }
+  }
+  return NULL;
 }
 
 /*
@@ -922,7 +1054,8 @@ proc의 mmap_area를 순회하며 빈 자리를 찾아 새로운 area 저장.
 p->lock 잡은 채로 호출해야 함.
 */
 int
-_add_vm_area(
+add_vma
+(
   struct proc *p,
   uint64 start,
   uint64 length,
@@ -930,11 +1063,16 @@ _add_vm_area(
   int needs_cow
 )
 {
-  struct vm_area *area;
+  struct vm_area *area = find_empty_vma();
+  if (area == NULL) {
+    return -1;
+  }
 
+  // p->mmap 중 빈 slot 찾기
   for (int i=0; i<MMAP_PROC_MAX; i++) {
-    area = p->vm_areas + i;
-    if (!area->is_valid) {
+    if (p->mmap[i] == NULL) {
+      p->mmap[i] = area;
+      
       area->is_valid = TRUE;
       area->start = start;
       area->end = start + length;
@@ -949,23 +1087,42 @@ _add_vm_area(
 }
 
 /*
+이미 있는 vm area를 새로운 process와 동시에 가리키도록 설정.
+빈 자리가 없으면 -1 반환.
+*/
+int
+share_vma(struct proc *np, struct vm_area *area) {
+  // np->mmap 중 빈 slot 찾기
+  for (int i=0; i<MMAP_PROC_MAX; i++) {
+    if (np->mmap[i] == NULL || np->mmap[i]->is_valid == FALSE) {
+      np->mmap[i] = area;
+      np->mmap_count++;
+      return 0;
+    }
+  }
+  return -1;
+}
+
+/*
 proc의 mmap_area를 순회하며 주어진 주소가 포함되는 vm_area 찾아 반환.
 해당하는 것이 없으면 NULL 반환.
 p->lock 잡은 채로 호출해야 함.
+pop=TRUE이면 pointer를 NULL로 고치고 mmap_count 감소시킴.
+is_valid를 FALSE로 바꾸는 것은 따로 처리해야 함.
 */
 struct vm_area *
-_find_vm_area(struct proc *p, uint64 addr, int pop)
+get_vma(struct proc *p, uint64 addr, int pop)
 {
   struct vm_area *area;
 
   for (int i=0; i<MMAP_PROC_MAX; i++) {
-    area = p->vm_areas + i;
-    if (!area->is_valid) {
+    area = p->mmap[i];
+    if (area == NULL) {
       continue;
     }
     if (area->start <= addr && addr < area->end) {
       if (pop) {
-        area->is_valid = FALSE;
+        p->mmap[i] = NULL;
         p->mmap_count--;
       }
       return area;
@@ -975,22 +1132,60 @@ _find_vm_area(struct proc *p, uint64 addr, int pop)
 }
 
 /*
-모든 proc의 mmap_area를 순회하며 주어진 구간과
-겹치는 것이 있으면 TRUE, 없으면 FALSE 반환.
+2^15 배열에서 PA에 맞는 shared page를 반환.
 */
-int
-_is_overlapped(uint64 start, uint64 end) {
-  struct proc *p;
-  struct vm_area *area;
+struct shared_page *
+get_shpg(uint64 pa)
+{
+  return shared_pages + PGINDEX(pa);
+}
 
-  for (p = proc; p < &proc[NPROC]; p++) {
-    for (int i=0; i<MMAP_PROC_MAX; i++) {
-      area = p->vm_areas + i;
-      if (area->is_valid && area->start < end && start < area->end) {
-        return TRUE;
-      }
+/*
+2^15 배열을 순회하며 조건에 맞는 shared page를 찾음.
+없으면 NULL 반환.
+*/
+struct shared_page *
+find_shpg(int vma_idx, uint64 start_va)
+{
+  struct shared_page *shpg;
+
+  for (int i=0; i<MAXPGS; i++) {
+    shpg = shared_pages + i;
+    acquire(&shpg->lock);
+    if (shpg->vma_idx == vma_idx && shpg->start_va == start_va) {
+      release(&shpg->lock);
+      return shpg;
     }
+    release(&shpg->lock);
   }
-  return FALSE;
+  return NULL;
+}
+
+// FIXME: FOR TEST
+void show_pte(pte_t *pte)
+{
+  printf("----------- PTE: %p\n", pte);
+  printf("PTE_V: %d\n", (*pte & PTE_V) != 0);
+  printf("PTE_R: %d\n", (*pte & PTE_R) != 0);
+  printf("PTE_W: %d\n", (*pte & PTE_W) != 0);
+  printf("PTE_SHR: %d\n", (*pte & PTE_SHR) != 0);
+  printf("PTE2PA: %p\n", PTE2PA(*pte));
+}
+
+void show_vm_areas(struct proc *p)
+{
+  struct vm_area *area;
+  for (int i=0; i<MMAP_PROC_MAX; i++) {
+    area = p->mmap[i];
+    if (area == NULL) {
+      continue;
+    }
+    printf("----------- vm areas of proc %d\n", p->pid);
+    printf("start: %p\n", area->start);
+    printf("end: %p\n", area->end);
+    printf("length: %d\n", area->length);
+    printf("options: %x\n", area->options);
+    printf("needs_cow: %d\n", area->needs_cow);
+  }
 }
 #endif

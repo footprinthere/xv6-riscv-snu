@@ -3,6 +3,8 @@ struct context;
 struct file;
 struct inode;
 struct pipe;
+struct vm_area;
+struct shared_page;
 struct proc;
 struct spinlock;
 struct sleeplock;
@@ -120,9 +122,15 @@ int             options_to_flags(int);
 int             munmap(void *addr);
 int             munmap_all(void);
 void            pagefault(uint64, uint64);
-int             _add_vm_area(struct proc *, uint64, uint64, int, int);
-struct vm_area* _find_vm_area(struct proc *, uint64, int);
-int             _is_overlapped(uint64, uint64);
+void            handle_shared_fault(struct proc *, pte_t *, uint64, struct vm_area *, int);
+void            handle_private_fault(struct proc *, pte_t *, uint64, struct vm_area *, int);
+
+struct vm_area* find_empty_vma(void);
+int             add_vma(struct proc *, uint64, uint64, int, int);
+int             share_vma(struct proc *, struct vm_area *);
+struct vm_area* get_vma(struct proc *, uint64, int);
+struct shared_page *    get_shpg(uint64);
+struct shared_page *    find_shpg(int, uint64);
 extern int      pagefaults;
 #endif
 
@@ -188,7 +196,7 @@ uint64          uvmdealloc(pagetable_t, uint64, uint64);
 int             uvmcopy(pagetable_t, pagetable_t, uint64);
 #else
 int             uvmcopy(struct proc *, struct proc *, uint64);
-int             _copy_mmap_area(struct proc *, pte_t *pte, struct vm_area *);
+int             copy_mmap_area(pagetable_t, struct vm_area *, struct proc *);
 void            flexuvmunmap(pagetable_t, uint64, uint64, int);
 #endif
 void            uvmfree(pagetable_t, uint64);
