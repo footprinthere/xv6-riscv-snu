@@ -779,23 +779,23 @@ mmap 옵션을 받아 PTE flags로 변환.
 int
 options_to_flags(int options)
 {
-  int valid = PTE_U | PTE_V;
   switch (options) {
-  case 0x011:
-  case 0x111:
-    return valid = PTE_R;
-  case 0x012:
-  case 0x112:
-    return valid | (PTE_R | PTE_W);
-  case 0x021:
-  case 0x121:
-    return valid | (PTE_R | PTE_SHR);
-  case 0x022:
-  case 0x122:
-    return valid | (PTE_R | PTE_W | PTE_SHR);
+    case 0x011:
+    case 0x111:
+      return PTE_U | PTE_V | PTE_R;
+    case 0x012:
+    case 0x112:
+      return PTE_U | PTE_V | PTE_R | PTE_W;
+    case 0x021:
+    case 0x121:
+      return PTE_U | PTE_V | PTE_R | PTE_SHR;
+    case 0x022:
+    case 0x122:
+      // shared + RW이면 invalid로 할당
+      return PTE_U | PTE_R | PTE_W | PTE_SHR;
 
-  default:
-    return 0;
+    default:
+      return 0;
   }
 }
 
@@ -954,10 +954,17 @@ pagefault(uint64 scause, uint64 stval)
 
   if (area->options & MAP_SHARED) {
     // shared area
-    handle_shared_fault(p, pte, stval, area, is_huge);
-    release(&p->lock);
+    if (!(area->options & PROT_WRITE) && scause == SCAUSE_STORE) {
+      release(&p->lock);
+      setkilled(p);
+    } else {
+      handle_shared_fault(p, pte, stval, area, is_huge);
+      release(&p->lock);
+    }
     return;
-  } else if (scause == SCAUSE_LOAD) {
+  }
+
+  if (scause == SCAUSE_LOAD) {
     release(&p->lock);
     // shared가 아닌데 load이면 진짜 못 읽는 것
     printf("pagefault (load): pid=%d scause=%d stval=%d\n", p->pid, scause, stval);
@@ -992,7 +999,6 @@ handle_shared_fault
   int is_huge
 )
 {
-  // load 이면
   uint64 start_va = (is_huge) ? HUGEPGROUNDDOWN(va) : PGROUNDDOWN(va);
   struct shared_page *shpg = find_shpg(area->idx, start_va);
   char *mem;
