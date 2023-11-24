@@ -765,7 +765,7 @@ mmap 옵션을 받아 PTE flags로 변환
 int
 options_to_flags(int options)
 {
-  int pte_flags = PTE_V | PTE_U;
+  int pte_flags = PTE_U;
   if (options & PROT_READ)
     pte_flags |= PTE_R;
   if (options & PROT_WRITE)

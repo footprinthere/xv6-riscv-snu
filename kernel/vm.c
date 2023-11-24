@@ -149,19 +149,19 @@ walkfind(pagetable_t pagetable, uint64 va, int *is_huge)
 
   for (int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
-    if (!(*pte & PTE_V)) {
-      // invalid
-      return NULL;
-    } else if (PTE_FLAGS(*pte) == PTE_V) {
-      // valid이면서 leaf 아님
-      pagetable = (pagetable_t)PTE2PA(*pte);
-    } else {
-      // valid leaf
+    if (PTE_FLAGS(*pte) != PTE_V) {
+      // leaf (Valid or invalid)
       if (level == 2)
-        panic("hugepage: leaf in level 2");
+        panic("walkfind: leaf in level 2");
       if (is_huge != NULL)
         *is_huge = TRUE;
       return pte;
+    } if (*pte & PTE_V) {
+      // valid이면서 leaf 아님
+      pagetable = (pagetable_t)PTE2PA(*pte);
+    } else {
+      // invalid이면서 leaf 아님
+      return NULL;
     }
   }
   if (is_huge != NULL)
@@ -583,8 +583,6 @@ copy_mmap_area(pagetable_t pagetable, struct vm_area *area, struct proc *np) {
     pte = walkfind(pagetable, a, NULL);
     if (pte == NULL) {
       panic("uvmcopy (mmap): pte should exist");
-    } else if (!(*pte & PTE_V)) {
-      panic("uvmcopy (mmap): page not present");
     }
 
     if (area->options & MAP_SHARED) {
