@@ -856,7 +856,10 @@ munmap(void *addr)
         }
       }
 
-      kfree_flex((void *)pa, is_huge);
+      if (pa != (uint64)ZEROHUGEPG) {
+        // zero page는 free 하지 않음
+        kfree_flex((void *)pa, is_huge);
+      }
     } else {
       area->shared_count--;
     }
