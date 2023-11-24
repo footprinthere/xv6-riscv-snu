@@ -730,30 +730,37 @@ mmap(void *addr, int length, int prot, int flags)
   struct proc *p = myproc();
   int is_huge = (flags & MAP_HUGEPAGE) ? TRUE : FALSE;
 
-  // addr가 page-aligned 되어 있지 않으면 NULL 반환
-  if (is_huge && a % HUGEPGSIZE != 0)
+  // FAIL: addr가 page-aligned 되어 있지 않음
+  if (is_huge && a % HUGEPGSIZE != 0) {
     return NULL;
-  if (!is_huge && a % PGSIZE != 0)
-    return NULL;
-
-  // prot나 flag가 잘못되었으면 NULL 반환
-  if (!(prot & PROT_READ) && !(prot & PROT_WRITE)) {
-    return NULL;
-  }
-  if (!(flags & MAP_PRIVATE) && !(flags & MAP_SHARED)) {
+  } else if (!is_huge && a % PGSIZE != 0) {
     return NULL;
   }
 
-  // 공간의 최대 크기나 최대 개수를 초과하면 NULL 반환
+  if (length <= 0 || length > MMAP_MAX_SIZE) {
+    // FAIL: 공간 크기가 범위를 초과
+    return NULL;
+  }
+
+  int pte_flags = options_to_flags(prot | flags);
+  if (pte_flags == 0) {
+    // FAIL: 옵션 조합이 잘못됨
+    return NULL;
+  }
+  
   acquire(&p->lock);
-  int mmap_count = p->mmap_count;
-  release(&p->lock);
-  if (length > MMAP_MAX_SIZE || mmap_count >= MMAP_PROC_MAX) {
+  if (p->mmap_count >= MMAP_PROC_MAX) {
+    // FAIL: 공간의 최대 개수를 초과
+    release(&p->lock);
+    return NULL;
+  } else if (get_vma(p, a, FALSE) != NULL) {
+    // FAIL: 이미 mmap 된 area
+    release(&p->lock);
     return NULL;
   }
+  release(&p->lock);
 
   // zero page로 연결되는 PTE 생성
-  int pte_flags = options_to_flags(prot | flags);
   acquire(&p->lock);
   if (flexmappages(p->pagetable, a, length, NULL, flags & MAP_HUGEPAGE, pte_flags) == -1) {
     release(&p->lock);
@@ -766,21 +773,30 @@ mmap(void *addr, int length, int prot, int flags)
 }
 
 /*
-mmap 옵션을 받아 PTE flags로 변환
+mmap 옵션을 받아 PTE flags로 변환.
+입력이 조건에 맞지 않으면 0 반환.
 */
 int
 options_to_flags(int options)
 {
-  int pte_flags = PTE_U | PTE_V;
-  if (options & PROT_READ)
-    pte_flags |= PTE_R;
-  if (options & PROT_WRITE)
-    pte_flags |= (PTE_W | PTE_R);
-  if (options & MAP_SHARED) {
-    pte_flags |= PTE_SHR;
-    pte_flags &= ~PTE_V;  // shared이면 invalid로 표시
+  int valid = PTE_U | PTE_V;
+  switch (options) {
+  case 0x011:
+  case 0x111:
+    return valid = PTE_R;
+  case 0x012:
+  case 0x112:
+    return valid | (PTE_R | PTE_W);
+  case 0x021:
+  case 0x121:
+    return valid | (PTE_R | PTE_SHR);
+  case 0x022:
+  case 0x122:
+    return valid | (PTE_R | PTE_W | PTE_SHR);
+
+  default:
+    return 0;
   }
-  return pte_flags;
 }
 
 /*
