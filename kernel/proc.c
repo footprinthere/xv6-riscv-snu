@@ -782,17 +782,18 @@ options_to_flags(int options)
   switch (options) {
     case 0x011:
     case 0x111:
+    case 0x021:
+    case 0x121:
+      // RO
       return PTE_U | PTE_V | PTE_R;
     case 0x012:
     case 0x112:
+      // private RW
       return PTE_U | PTE_V | PTE_R | PTE_W;
-    case 0x021:
-    case 0x121:
-      return PTE_U | PTE_V | PTE_R | PTE_SHR;
     case 0x022:
     case 0x122:
-      // shared + RW이면 invalid로 할당
-      return PTE_U | PTE_R | PTE_W | PTE_SHR;
+      // shared RW -> invalid로 할당
+      return PTE_U | PTE_R | PTE_W;
 
     default:
       return 0;
@@ -1183,7 +1184,6 @@ void show_pte(pte_t *pte)
   printf("PTE_V: %d\n", (*pte & PTE_V) != 0);
   printf("PTE_R: %d\n", (*pte & PTE_R) != 0);
   printf("PTE_W: %d\n", (*pte & PTE_W) != 0);
-  printf("PTE_SHR: %d\n", (*pte & PTE_SHR) != 0);
   printf("PTE2PA: %p\n", PTE2PA(*pte));
   printf("\n");
 }
