@@ -145,7 +145,7 @@ pte_t *
 walkfind(pagetable_t pagetable, uint64 va, int *is_huge)
 {
   if (va >= MAXVA)
-    panic("hugewalk");
+    panic("walkfind");
 
   for (int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
