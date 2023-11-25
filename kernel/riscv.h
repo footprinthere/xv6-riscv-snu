@@ -334,7 +334,7 @@ typedef uint64 *pagetable_t; // 512 PTEs
 
 #define PGSIZE 4096 // bytes per page
 #define PGSHIFT 12  // bits of offset within a page
-#define MAXPGS 1 << 15
+#define MAXPGS (1 << 15)
 #define PGINDEX(pa) (((uint64) (pa) - KERNBASE) >> PGSHIFT)
 
 #define MAXHUGEPGS 64
@@ -342,10 +342,11 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define HUGEPGSIZE (PGSIZE * PGINHUGEPG)
 #define HUGEPGSHIFT 21
 #define HUGEPGINDEX(pa) (((uint64) (pa) - KERNBASE) >> HUGEPGSHIFT)
-#define HUGEPAGEADDR(i) (void*)((((uint64) (i)) << HUGEPGSHIFT) + KERNBASE)
+#define HUGEPGADDR(i) (void*)((((uint64) (i)) << HUGEPGSHIFT) + KERNBASE)
 
 #define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1))
 #define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1))
+#define HUGEPGROUNDUP(sz)  (((sz)+HUGEPGSIZE-1) & ~(HUGEPGSIZE-1))
 #define HUGEPGROUNDDOWN(a) (((a)) & ~(HUGEPGSIZE-1))
 
 #define PTE_V (1L << 0) // valid

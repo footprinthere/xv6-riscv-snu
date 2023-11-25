@@ -258,7 +258,7 @@ kalloc_huge(void)
   }
 
   if (target > -1) {
-    pa = HUGEPAGEADDR(target);
+    pa = HUGEPGADDR(target);
     memset((char*)pa, 5, HUGEPGSIZE); // fill with junk
     acquire(&memstat_lock);
     freemem -= PGINHUGEPG;

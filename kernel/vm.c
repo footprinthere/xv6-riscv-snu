@@ -494,7 +494,6 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
   struct vm_area *area;
 
   int is_huge;
-  int page_size;
   int flags;
 
   while (a < sz) {
@@ -512,26 +511,29 @@ uvmcopy(struct proc *p, struct proc *np, uint64 sz)
     release(&p->lock);
     if (area != NULL) {
       // mmap area는 따로 처리
+      a += (is_huge) ? HUGEPGROUNDUP(area->length) : PGROUNDUP(area->length);
       continue;
+    }
+    if (is_huge) {
+      panic("uvmcopy: hugepage");
     }
 
     // mmap 아닐 때
     pa = PTE2PA(*pte);
-    mem = kalloc_flex(is_huge);
+    mem = kalloc();
     if (mem == NULL) {
       goto err;
     }
 
-    page_size = (is_huge) ? HUGEPGSIZE : PGSIZE;
-    memmove(mem, (char*)pa, page_size);
+    memmove(mem, (char*)pa, PGSIZE);
 
     flags = PTE_FLAGS(*pte);
-    if (flexmappages(np->pagetable, a, page_size, (uint64)mem, is_huge, flags) == -1) {
+    if (flexmappages(np->pagetable, a, PGSIZE, (uint64)mem, is_huge, flags) == -1) {
       kfree_flex(mem, is_huge);
       goto err;
     } 
 
-    a += (is_huge) ? HUGEPGSIZE : PGSIZE;
+    a += PGSIZE;
   }
 
   // mmap area 처리
