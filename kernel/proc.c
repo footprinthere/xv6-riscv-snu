@@ -1217,6 +1217,7 @@ void show_pte(pte_t *pte)
   printf("PTE_W: %d\n", (*pte & PTE_W) != 0);
   printf("PTE_SHR: %d\n", (*pte & PTE_SHR) != 0);
   printf("PTE2PA: %p\n", PTE2PA(*pte));
+  printf("\n");
 }
 
 void show_vm_areas(struct proc *p)
@@ -1233,6 +1234,29 @@ void show_vm_areas(struct proc *p)
     printf("length: %d\n", area->length);
     printf("options: %x\n", area->options);
     printf("needs_cow: %d\n", area->needs_cow);
+    printf("\n");
+  }
+}
+
+void show_shpg(struct shared_page *shpg)
+{
+  printf("----------- shpg: %p\n", shpg);
+  printf("vma_idx: %d\n", shpg->vma_idx);
+  printf("start_va: %p\n", shpg->start_va);
+  // printf("ref_count: %d\n", shpg->ref_count);
+  printf("pte: %p\n", shpg->pte);
+  printf("\n");
+}
+
+void find_pte(uint64 addr)
+{
+  struct proc *p = myproc();
+  pte_t *pte = walkfind(p->pagetable, addr, NULL);
+  printf("<find pte> pid %d addr %p\n", p->pid, addr);
+  if (pte == NULL) {
+    printf("PTE not found\n");
+  } else {
+    show_pte(pte);
   }
 }
 #endif
