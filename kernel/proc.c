@@ -780,20 +780,18 @@ int
 options_to_flags(int options)
 {
   switch (options) {
+    case 0x022:
+    case 0x122:
+      // shared RW -> invalid로 할당
+      return PTE_U | PTE_R;
     case 0x011:
     case 0x111:
     case 0x021:
     case 0x121:
-      // RO
-      return PTE_U | PTE_V | PTE_R;
     case 0x012:
     case 0x112:
-      // private RW
-      return PTE_U | PTE_V | PTE_R | PTE_W;
-    case 0x022:
-    case 0x122:
-      // shared RW -> invalid로 할당
-      return PTE_U | PTE_R | PTE_W;
+      // RO 또는 private RW
+      return PTE_U | PTE_V | PTE_R;
 
     default:
       return 0;
