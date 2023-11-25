@@ -766,7 +766,7 @@ mmap(void *addr, int length, int prot, int flags)
     release(&p->lock);
     return NULL;
   }
-  add_vma(p, a, length, prot | flags, FALSE);
+  add_vma(p, a, length, prot | flags);
   release(&p->lock);
 
   return addr;
@@ -890,7 +890,6 @@ munmap(void *addr)
     area->end = 0;
     area->length = 0;
     area->options = 0;
-    area->needs_cow = FALSE;
   }
 
   return 0;
@@ -977,7 +976,14 @@ pagefault(uint64 scause, uint64 stval)
     return;
   }
 
-  handle_private_fault(p, pte, stval, area, is_huge);
+  char *mem = kalloc_flex(is_huge);
+  if (mem == NULL) {
+    panic("pagefault: kalloc failed\n");
+  }
+
+  memmove(mem, (void*)PTE2PA(*pte), (is_huge) ? HUGEPGSIZE : PGSIZE);
+  *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R | PTE_W;
+
   release(&p->lock);
 }
 
@@ -1031,36 +1037,6 @@ handle_shared_fault
 }
 
 /*
-private, writable 영역에 대한 store fault 처리.
-area는 NULL이 아니어야 함.
-*/
-void
-handle_private_fault
-(
-  struct proc *p,
-  pte_t *pte,
-  uint64 va,
-  struct vm_area *area,
-  int is_huge
-)
-{
-  char *mem = kalloc_flex(is_huge);
-  if (mem == NULL) {
-    panic("pagefault: kalloc failed\n");
-  }
-
-  if (area->needs_cow) {
-    // allocated
-    area->needs_cow = FALSE;
-    memmove(mem, (void*)PTE2PA(*pte), (is_huge) ? HUGEPGSIZE : PGSIZE);
-  } else {
-    // zero-mapped
-    memset(mem, 0, (is_huge) ? HUGEPGSIZE : PGSIZE);
-  }
-  *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R | PTE_W;
-}
-
-/*
 vm area들의 global 배열 중에서
 쓰이지 않고 비어 있는 것을 찾아 반환.
 없으면 NULL 반환.
@@ -1086,14 +1062,7 @@ proc의 mmap_area를 순회하며 빈 자리를 찾아 새로운 area 저장.
 p->lock 잡은 채로 호출해야 함.
 */
 int
-add_vma
-(
-  struct proc *p,
-  uint64 start,
-  uint64 length,
-  int options,
-  int needs_cow
-)
+add_vma(struct proc *p, uint64 start, uint64 length, int options)
 {
   struct vm_area *area = find_empty_vma();
   if (area == NULL) {
@@ -1110,7 +1079,6 @@ add_vma
       area->end = start + length;
       area->length = length;
       area->options = options;
-      area->needs_cow = needs_cow;
       p->mmap_count++;
       return 0;
     }
@@ -1233,7 +1201,6 @@ void show_vm_areas(struct proc *p)
     printf("end: %p\n", area->end);
     printf("length: %d\n", area->length);
     printf("options: %x\n", area->options);
-    printf("needs_cow: %d\n", area->needs_cow);
     printf("\n");
   }
 }

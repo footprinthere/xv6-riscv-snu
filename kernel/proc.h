@@ -92,7 +92,6 @@ struct vm_area {
   uint64 end;
   uint64 length;
   int options;        // PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE, MAP_HUGEPAGE
-  int needs_cow;
   int shared_count;   // N개가 공유하고 있으면 N-1 (0이면 혼자만 쓰고 있는 것)
 };
 

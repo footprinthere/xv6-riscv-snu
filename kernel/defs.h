@@ -123,10 +123,9 @@ int             munmap(void *addr);
 int             munmap_all(void);
 void            pagefault(uint64, uint64);
 void            handle_shared_fault(struct proc *, pte_t *, uint64, struct vm_area *, int);
-void            handle_private_fault(struct proc *, pte_t *, uint64, struct vm_area *, int);
 
 struct vm_area* find_empty_vma(void);
-int             add_vma(struct proc *, uint64, uint64, int, int);
+int             add_vma(struct proc *, uint64, uint64, int);
 int             share_vma(struct proc *, struct vm_area *);
 struct vm_area* get_vma(struct proc *, uint64, int);
 void                    init_shpg(void);

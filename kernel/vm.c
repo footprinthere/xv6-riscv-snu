@@ -607,11 +607,10 @@ copy_mmap_area(pagetable_t pagetable, struct vm_area *area, struct proc *np) {
     // 같은 vm area 공유
     share_vma(np, area);
   } else {
-    // 기존 area에 COW 필요하다고 표시
-    // TODO: 이렇게 해놓으면 양쪽 다 COW 했을 떄 원래 공간은 free 처리가 안 됨
-    area->needs_cow = TRUE;
     // 새 area 추가
-    add_vma(np, area->start, area->length, area->options, TRUE);
+    add_vma(np, area->start, area->length, area->options);
+    // TODO: 이렇게 해놓으면 양쪽 다 COW 했을 떄 원래 공간은 free 처리가 안 됨
+    //    -> private도 shared_page처럼 뭔가 추적을 해야 하나? 근데 이건 PP 단위로 못 한다.
   }
 
   return 0;
