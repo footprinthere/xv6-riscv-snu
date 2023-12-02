@@ -131,10 +131,6 @@ struct vm_area* get_vma(struct proc *, uint64, int);
 void                    init_shpg(void);
 struct shared_page *    get_shpg(uint64);
 struct shared_page *    find_shpg(int, uint64);
-void            show_pte(pte_t *);
-void            show_vm_areas(struct proc *);
-void            show_shpg(struct shared_page *);
-void            find_pte(uint64);
 extern int      pagefaults;
 #endif
 
