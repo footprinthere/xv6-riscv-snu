@@ -26,6 +26,10 @@ uservec:
         # user page table.
         #
 
+#ifdef SNU
+        # PA5: swap a0 with sscratch
+        csrrw a0, sscratch, a0
+#else
         # save user a0 in sscratch so
         # a0 can be used to get at TRAPFRAME.
         csrw sscratch, a0
@@ -34,6 +38,7 @@ uservec:
         # but it's mapped to the same virtual address
         # (TRAPFRAME) in every process's user page table.
         li a0, TRAPFRAME
+#endif
         
         # save the user registers in TRAPFRAME
         sd ra, 40(a0)
@@ -109,7 +114,13 @@ userret:
         csrw satp, a0
         sfence.vma zero, zero
 
+#ifdef SNU
+        # PA5: save the trapframe address (n a1) to sscratch
+        csrw sscratch, a1
+        mv a0, a1
+#else
         li a0, TRAPFRAME
+#endif
 
         # restore all but a0 from TRAPFRAME
         ld ra, 40(a0)

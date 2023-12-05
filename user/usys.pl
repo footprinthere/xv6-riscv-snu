@@ -36,3 +36,8 @@ entry("getpid");
 entry("sbrk");
 entry("sleep");
 entry("uptime");
+# SNU
+entry("sthread_self");
+entry("sthread_create");
+entry("sthread_exit");
+entry("sthread_join");

@@ -89,3 +89,56 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+#ifdef SNU
+uint64
+sys_sthread_self(void)
+{
+  // PA5: FILL HERE
+
+  printf("NTH=%d\n", NTH);
+
+
+
+
+  return 0;
+}
+
+uint64
+sys_sthread_create(void)
+{
+  // PA5: FILL HERE
+
+
+
+
+
+
+  return 0;
+}
+
+void
+sys_sthread_exit(void)
+{
+  // PA5: FILL HERE
+
+
+
+
+
+
+}
+
+uint64
+sys_sthread_join(void)
+{
+  // PA5: FILL HERE
+
+
+
+
+
+
+  return 0;
+}
+#endif

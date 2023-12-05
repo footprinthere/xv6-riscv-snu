@@ -81,6 +81,16 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+#ifdef SNU
+// Per-thread state
+struct thread {
+  int tid;
+
+  // PA5: Define any thread-specific fields here
+
+};
+#endif
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -104,4 +114,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+                               //
+#ifdef SNU
+  struct thread thr[NTH];
+#endif
 };

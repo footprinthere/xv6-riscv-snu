@@ -20,3 +20,9 @@
 #define SYS_link   19
 #define SYS_mkdir  20
 #define SYS_close  21
+#ifdef SNU
+#define SYS_sthread_self    24
+#define SYS_sthread_create  25
+#define SYS_sthread_exit    26
+#define SYS_sthread_join    27
+#endif

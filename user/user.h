@@ -22,6 +22,12 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+#ifdef SNU
+int sthread_self(void);
+int sthread_create(void (*)(), void *);
+void sthread_exit(int);
+int sthread_join(int, int *);
+#endif
 
 // ulib.c
 int stat(const char*, struct stat*);
