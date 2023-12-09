@@ -2,7 +2,7 @@
 # Do not change the following PANUM
 PANUM = pa5
 # Please specify your student ID:
-STUDENTID =
+STUDENTID = 2018-15515
 
 _PANUM = $(strip $(PANUM))
 ifneq ($(_PANUM), pa5)
@@ -51,7 +51,7 @@ OBJS = \
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
-#TOOLPREFIX = 
+TOOLPREFIX = riscv64-linux-gnu-
 
 # Try to infer the correct TOOLPREFIX if not set
 ifndef TOOLPREFIX
