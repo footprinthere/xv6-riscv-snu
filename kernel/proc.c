@@ -374,6 +374,7 @@ freeproc(struct proc *p)
   p->chan = NULL;
   p->killed = 0;
   p->xstate = 0;
+  p->nexttid = 0;
   p->state = UNUSED;
 }
 

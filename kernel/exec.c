@@ -177,7 +177,6 @@ exec(char *path, char **argv)
 
   // trapframe을 pagetable에 map (원래 proc_pagetable에서 하던 것)
   if (maptrapframe(pagetable, t->trapframe, t->trapframeva) < 0) {
-    release(&t->lock);
     goto bad;
   }
 
