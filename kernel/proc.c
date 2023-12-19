@@ -245,6 +245,7 @@ findthread(int tid)
 {
   int pid = tid / 100;
   struct proc *p;
+  struct thread *t;
   
   for (p = proc; p < &proc[NPROC]; p++) {
     if (p->pid == pid) {
@@ -254,7 +255,6 @@ findthread(int tid)
   return NULL;
 
 proc_found:
-  struct thread *t;
   for (t = p->thr; t < &p->thr[NTH]; t++) {
     if (t->tid == tid) {
       return t;
