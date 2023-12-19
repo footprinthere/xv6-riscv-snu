@@ -26,6 +26,8 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+struct spinlock join_lock;
+
 #ifndef SNU
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -91,18 +93,23 @@ procinit(void)
 {
   struct proc *p;
   struct thread *t;
+  int kstackidx;
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+  initlock(&join_lock, "join_lock");
 
   for(p = proc; p < &proc[NPROC]; p++) {
     initlock(&p->lock, "proc");
     p->state = UNUSED;
-    
-    for (t = p->thr; t < &p->thr[NTH]; t++) {
+
+    for (int n=0; n<NTH; n++) {
+      t = p->thr + n;
+
       initlock(&t->lock, "thread");
+      t->threadno = n;
       t->state = T_UNUSED;
-      int kstackidx = (p - proc) * NTH + (t - p->thr);
+      kstackidx = (p - proc) * NTH + (t - p->thr);
       t->kstack = KSTACK(kstackidx);
     }
   }
@@ -233,17 +240,38 @@ mythread(void)
   return t;
 }
 
+struct thread *
+findthread(int tid)
+{
+  int pid = tid / 100;
+  struct proc *p;
+  
+  for (p = proc; p < &proc[NPROC]; p++) {
+    if (p->pid == pid) {
+      goto proc_found;
+    }
+  }
+  return NULL;
+
+proc_found:
+  struct thread *t;
+  for (t = p->thr; t < &p->thr[NTH]; t++) {
+    if (t->tid == tid) {
+      return t;
+    }
+  }
+  return NULL;
+}
+
 /*
 proc 내의 비어 있는 thread를 찾아 초기화하고 lock 잡은 채로 반환.
 */
 struct thread*
 allocthread(struct proc* p)
 {
-  int i;
   struct thread *t;
 
-  for (i = 0; i < NTH; i++) {
-    t = p->thr + i;
+  for (t = p->thr; t < &p->thr[NTH]; t++) {
     acquire(&t->lock);
     if (t->state == T_UNUSED) {
       goto found;
@@ -266,11 +294,11 @@ found:
   }
 
   // trapframe을 pagetable에 map (원래 proc_pagetable에서 하던 것)
-  if (maptrapframe(p->pagetable, t->trapframe, THRTRAPFRAME(i)) < 0) {
+  if (maptrapframe(p->pagetable, t->trapframe, THRTRAPFRAME(t->threadno)) < 0) {
     release(&t->lock);
     return NULL;
   }
-  t->trapframeva = THRTRAPFRAME(i);
+  t->trapframeva = THRTRAPFRAME(t->threadno);
 
   // context 초기화
   // 새 thread는 forkret에서 실행을 시작해 user space로 돌아감
@@ -687,7 +715,7 @@ exit(int status)
       ot->state = T_ZOMBIE;
     }
     if (ot != t) {
-      release(&ot->lock);   // 현재 thread의 lock은 해제하지 않음
+      release(&ot->lock);   // 현재 thread의 lock은 해제하지 않음 (for scheduling)
     }
   }
 
@@ -1115,4 +1143,140 @@ procdump(void)
 }
 
 #ifdef SNU
+/*
+성공 시 새로운 tid, 실패 시 -1 반환.
+*/
+int
+sthread_create(void (*func)(), void *arg)
+{
+  struct proc *p = myproc();
+  struct thread *nt = allocthread(p);
+
+  if (nt == NULL) {
+    return -1;
+  }
+
+  // 함수 호출 설정
+  nt->trapframe->epc = (uint64)func;
+  nt->trapframe->a0 = (uint64)arg;
+
+  // user stack 설정
+  int newsz = uvmalloc(p->pagetable, p->sz, p->sz + 2*PGSIZE, PTE_W);
+  if (newsz == 0) {
+    freethread(nt);
+    release(&nt->lock);
+    return -1;
+  }
+  uvmclear(p->pagetable, newsz - 2*PGSIZE);
+  nt->trapframe->sp = newsz;
+  p->sz = newsz;
+
+  // 마무리
+  nt->state = T_RUNNABLE;
+  release(&nt->lock);
+  return nt->tid;
+}
+
+void
+sthread_exit(int retval)
+{
+  struct proc *p = myproc();
+  struct thread *t = mythread();
+
+  // join 하는 thread에 retval 전달
+  struct thread *waiter;
+  for (waiter = p->thr; waiter < &p->thr[NTH]; waiter++) {
+    acquire(&join_lock);
+    if (waiter->chan == t) {
+      waiter->retval = retval;
+      waiter->joined = TRUE;
+      wakeup(t);
+      release(&join_lock);
+      break;
+    }
+    release(&join_lock);
+  }
+
+  // thread resource 해제 (freeproc에서 하는 것과 동일)
+  acquire(&t->lock);
+  if (p->pagetable == NULL || t->trapframeva == 0) {
+    panic("sthread_exit");
+  }
+  uvmunmap(p->pagetable, t->trapframeva, 1, FALSE); // trapframe mapping 해제
+  freethread(t);
+  release(&t->lock);
+
+  // 모든 thread가 exit 했다면 exit(-1)과 동일하게 처리
+  struct thread *_t;
+  for (_t = p->thr; _t < &p->thr[NTH]; _t++) {
+    acquire(&_t->lock);
+    if (_t->state != T_UNUSED) {
+      release(&_t->lock);
+      goto done;
+    }
+    release(&_t->lock);
+  }
+  exit(-1);
+
+done:
+  acquire(&t->lock);
+  sched();
+  panic("sthread_exit");
+}
+
+/*
+IDEA: retval 전달 어떻게?
+  - thread resource 해제 후에도 남아 있어야 함
+
+1안
+  - proc에 retval[NTH] 둬서
+  - exit하는 쪽이 자신의 threadno에 해당하는 slot에 tid와 retval 저장 후 cv에 signal
+  - join 하는 애가 없으면 signal이 그냥 lost 되고, 저장된 retval은 쓰레기가 됨
+  - join에서 wait 하던 애가 깨어나서 retval 받음
+  - 그 사이에 누가 overwrite 해버리면 어떡하지?
+
+2안
+  - join 하는 쪽은 target의 struct thread에 대고 sleep
+  - exit 할 때 자기에 대고 sleep 하는 애가 있는지 탐색
+  - 없으면 그냥 종료하면 되고
+  - 있으면 그 thread의 retval에 저장하고 깨움
+*/
+
+/*
+성공 시 0, 실패 시 -1 반환.
+*/
+int
+sthread_join(int tid, uint64 retva)
+{
+  struct proc *p = myproc();
+  struct thread *t = mythread();
+
+  if (tid == t->tid) {
+    return -1;  // 자기 자신에 대해 join
+  }
+  if (tid / 100 != p->pid) {
+    return -1;  // 다른 프로세스의 thread에 대해 join
+  }
+
+  acquire(&join_lock);
+
+  struct thread *target = findthread(tid);
+  if (target == NULL) {
+    return -1;  // 존재하지 않는 thread
+  }
+
+  // 대기
+  sleep(target, &join_lock);
+  release(&join_lock);
+
+  // 깨어난 후 retval 받아오기
+  if (t->joined == FALSE) {
+    panic("sthread_join");
+  }
+  if (retva != 0 && copyout(p->pagetable, retva, (char *)&t->retval, sizeof(t->retval)) < 0) {
+    return -1;
+  }
+  t->joined = FALSE;
+  return 0;
+}
 #endif

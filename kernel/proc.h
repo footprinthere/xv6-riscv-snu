@@ -90,6 +90,7 @@ struct thread {
   struct spinlock lock;
 
   int tid;
+  int threadno;
 
   enum threadstate state;
   void *chan;
@@ -98,6 +99,9 @@ struct thread {
   uint64 trapframeva;
   struct trapframe *trapframe;
   struct context context;
+
+  int joined;
+  int retval;
 };
 
 enum procstate { UNUSED, USED, ZOMBIE };

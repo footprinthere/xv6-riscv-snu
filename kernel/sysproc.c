@@ -94,51 +94,39 @@ sys_uptime(void)
 uint64
 sys_sthread_self(void)
 {
-  // PA5: FILL HERE
-
-  printf("NTH=%d\n", NTH);
-
-
-
-
-  return 0;
+  uint64 tid = mythread()->tid;
+  return tid;
 }
 
 uint64
 sys_sthread_create(void)
 {
-  // PA5: FILL HERE
+  uint64 func, arg;
+  argaddr(0, &func);
+  argaddr(1, &arg);
 
-
-
-
-
-
-  return 0;
+  uint64 tid = sthread_create((void (*)())func, (void *)arg);
+  return tid;
 }
 
 void
 sys_sthread_exit(void)
 {
-  // PA5: FILL HERE
+  int retval;
+  argint(0, &retval);
 
-
-
-
-
-
+  sthread_exit(retval);
 }
 
 uint64
 sys_sthread_join(void)
 {
-  // PA5: FILL HERE
+  int tid;
+  uint64 retva;
+  argint(0, &tid);
+  argaddr(1, &retva);
 
-
-
-
-
-
-  return 0;
+  int result = sthread_join(tid, retva);
+  return result;
 }
 #endif

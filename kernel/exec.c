@@ -247,7 +247,7 @@ exec(char *path, char **argv)
   for (_t = p->thr; _t < &p->thr[NTH]; _t++) {
     acquire(&_t->lock);
     if (_t->trapframeva) {
-      // trapframe mapping 해제
+      // 기존 pagetable의 trapframe mapping 해제 (caller thread 포함)
       uvmunmap(p->pagetable, _t->trapframeva, 1, FALSE);
     }
     if (_t != t && _t->state != T_UNUSED) {

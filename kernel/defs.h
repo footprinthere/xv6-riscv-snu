@@ -113,8 +113,13 @@ void            procdump(void);
 
 #ifdef SNU
 struct thread*  mythread(void);
+struct thread*  findthread(int);
 void            freethread(struct thread *t);
 int             maptrapframe(pagetable_t, struct trapframe *, uint64);
+
+int             sthread_create(void (*)(), void *);
+void            sthread_exit(int);
+int             sthread_join(int, uint64);
 #endif
 
 // swtch.S
