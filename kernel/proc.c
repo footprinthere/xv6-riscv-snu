@@ -338,8 +338,6 @@ freethread(struct thread *t)
   }
   t->trapframe = NULL;
   t->trapframeva = 0;
-
-  t->next = NULL;
 }
 
 /*
@@ -1117,68 +1115,4 @@ procdump(void)
 }
 
 #ifdef SNU
-void
-sema_init(struct sema *s, int count) {
-  initlock(&s->lock, "sema");
-  s->count = count;
-  s->queue = NULL;
-}
-
-void
-sema_wait(struct sema *s) {
-  struct thread* thr = mythread();
-
-  acquire(&s->lock);
-  s->count--;
-  if (s->count < 0) {
-    // queue에 thread 추가
-    thr->next = s->queue;
-    s->queue = thr;
-    // sleep
-    sleep(thr, &s->lock);
-  }
-  release(&s->lock);
-}
-
-void
-sema_signal(struct sema *s) {
-  struct thread *thr;
-
-  acquire(&s->lock);
-  s->count++;
-  if (s->count <= 0) {
-    if (s->queue == NULL) {
-      panic("sema_signal: queue is empty");
-    }
-    
-    // queue에서 thread 하나 꺼내서 깨움
-    thr = s->queue;
-    s->queue = thr->next;
-    thr->next = NULL;
-    wakeup(thr);
-  }
-  release(&s->lock);
-}
-
-void
-cond_init(struct cond *c) {
-  sema_init(&c->sema, 0);
-  c->count = 0;
-}
-
-void
-cond_wait(struct cond *c, struct sema *mutex) {
-  c->count++;
-  sema_signal(mutex);
-  sema_wait(&c->sema);
-  sema_wait(mutex);
-  c->count--;
-}
-
-void
-cond_signal(struct cond *c) {
-  if (c->count > 0) {
-    sema_signal(&c->sema);
-  }
-}
 #endif

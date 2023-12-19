@@ -4,8 +4,6 @@ struct file;
 struct inode;
 struct pipe;
 #ifdef SNU
-struct sema;
-struct cond;
 struct thread;
 struct trapframe;
 #endif
@@ -117,13 +115,6 @@ void            procdump(void);
 struct thread*  mythread(void);
 void            freethread(struct thread *t);
 int             maptrapframe(pagetable_t, struct trapframe *, uint64);
-
-void            sema_init(struct sema *, int);
-void            sema_wait(struct sema *);
-void            sema_signal(struct sema *);
-void            cond_init(struct cond *);
-void            cond_wait(struct cond *, struct sema *);
-void            cond_signal(struct cond *);
 #endif
 
 // swtch.S

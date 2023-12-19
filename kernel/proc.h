@@ -83,17 +83,6 @@ struct trapframe {
 };
 
 #ifdef SNU
-struct sema {
-  struct spinlock lock;
-  int count;
-  struct thread *queue;
-};
-
-struct cond {
-  struct sema sema;
-  int count;
-};
-
 enum threadstate { T_UNUSED, T_USED, T_SLEEPING, T_RUNNABLE, T_RUNNING, T_ZOMBIE };
 
 // Per-thread state
@@ -109,8 +98,6 @@ struct thread {
   uint64 trapframeva;
   struct trapframe *trapframe;
   struct context context;
-
-  struct thread *next;  // sema의 queue 구현을 위해 쓰임
 };
 
 enum procstate { UNUSED, USED, ZOMBIE };
