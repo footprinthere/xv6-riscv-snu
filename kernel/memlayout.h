@@ -64,4 +64,8 @@
 //   ...
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
+#ifndef SNU
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+#else
+#define THRTRAPFRAME(threadno) (TRAMPOLINE - (((int)threadno)+1)*PGSIZE)
+#endif

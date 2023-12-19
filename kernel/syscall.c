@@ -30,6 +30,7 @@ fetchstr(uint64 addr, char *buf, int max)
   return strlen(buf);
 }
 
+#ifndef SNU
 static uint64
 argraw(int n)
 {
@@ -51,6 +52,30 @@ argraw(int n)
   panic("argraw");
   return -1;
 }
+
+#else
+static uint64
+argraw(int n)
+{
+  struct thread *t = mythread();
+  switch (n) {
+  case 0:
+    return t->trapframe->a0;
+  case 1:
+    return t->trapframe->a1;
+  case 2:
+    return t->trapframe->a2;
+  case 3:
+    return t->trapframe->a3;
+  case 4:
+    return t->trapframe->a4;
+  case 5:
+    return t->trapframe->a5;
+  }
+  panic("argraw");
+  return -1;
+}
+#endif
 
 // Fetch the nth 32-bit system call argument.
 void
@@ -140,6 +165,7 @@ static uint64 (*syscalls[])(void) = {
 #endif
 };
 
+#ifndef SNU
 void
 syscall(void)
 {
@@ -157,3 +183,24 @@ syscall(void)
     p->trapframe->a0 = -1;
   }
 }
+
+#else
+void
+syscall(void)
+{
+  int num;
+  struct proc *p;
+  struct thread *t = mythread();
+
+  num = t->trapframe->a7;
+  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    // Use num to lookup the system call function for num, call it,
+    // and store its return value in p->trapframe->a0
+    t->trapframe->a0 = syscalls[num]();
+  } else {
+    p = myproc();
+    printf("%d %s: unknown sys call %d\n", p->pid, p->name, num);
+    t->trapframe->a0 = -1;
+  }
+}
+#endif

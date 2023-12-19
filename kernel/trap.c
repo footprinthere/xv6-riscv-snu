@@ -46,9 +46,15 @@ usertrap(void)
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
+#ifndef SNU
+  struct trapframe *trapframe = p->trapframe;
+#else
+  struct thread *t = mythread();
+  struct trapframe *trapframe = t->trapframe;
+#endif
   
   // save user program counter.
-  p->trapframe->epc = r_sepc();
+  trapframe->epc = r_sepc();
   
   if(r_scause() == 8){
     // system call
@@ -58,7 +64,7 @@ usertrap(void)
 
     // sepc points to the ecall instruction,
     // but we want to return to the next instruction.
-    p->trapframe->epc += 4;
+    trapframe->epc += 4;
 
     // an interrupt will change sepc, scause, and sstatus,
     // so enable only now that we're done with those registers.
@@ -83,6 +89,7 @@ usertrap(void)
   usertrapret();
 }
 
+#ifndef SNU
 //
 // return to user space
 //
@@ -126,14 +133,42 @@ usertrapret(void)
   // switches to the user page table, restores user registers,
   // and switches to user mode with sret.
   uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
-#ifdef SNU
-  // PA5: return the appropriate trapframe address for the current thread
-  //      instead of TRAPFRAME
-  ((void (*)(uint64,uint64))trampoline_userret)(satp, TRAPFRAME);
-#else
   ((void (*)(uint64))trampoline_userret)(satp);
-#endif
 }
+
+#else
+void
+usertrapret(void)
+{
+  struct proc *p = myproc();
+  struct thread *t = mythread();
+
+  intr_off();
+
+  uint64 trampoline_uservec = TRAMPOLINE + (uservec - trampoline);
+  w_stvec(trampoline_uservec);
+
+  // trapframe에서 꺼낸 정보들 다시 저장
+  t->trapframe->kernel_satp = r_satp();
+  t->trapframe->kernel_sp = t->kstack + PGSIZE;
+  t->trapframe->kernel_trap = (uint64)usertrap;
+  t->trapframe->kernel_hartid = r_tp();
+
+  // sret에서 user space로 돌아가기 위해 사용하는 reg 설정
+  unsigned long x = r_sstatus();
+  x &= ~SSTATUS_SPP;
+  x |= SSTATUS_SPIE;
+  w_sstatus(x);
+
+  w_sepc(t->trapframe->epc);
+
+  uint64 satp = MAKE_SATP(p->pagetable);
+
+  // userret으로 jump
+  uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
+  ((void (*)(uint64,uint64))trampoline_userret)(satp, t->trapframeva);
+}
+#endif
 
 // interrupts and exceptions from kernel code go here via kernelvec,
 // on whatever the current kernel stack is.
@@ -157,8 +192,13 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
+#ifndef SNU
   if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
     yield();
+#else
+  if (which_dev == 2 && mythread() != 0 && mythread()->state == T_RUNNING)
+    yield();
+#endif
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
@@ -224,4 +264,3 @@ devintr()
     return 0;
   }
 }
-

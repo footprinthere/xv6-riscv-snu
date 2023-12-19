@@ -26,6 +26,7 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+#ifndef SNU
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -57,6 +58,56 @@ procinit(void)
       p->kstack = KSTACK((int) (p - proc));
   }
 }
+
+#else
+/*
+각 thread의 kernel stack을 위한 공간 할당.
+kernel page table의 알맞은 위치에 mapping 생성.
+*/
+void
+proc_mapstacks(pagetable_t kpgtbl)
+{
+  struct proc *p;
+  struct thread *t;
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    for (t = p->thr; t < &p->thr[NTH]; t++) {
+      char *pa = kalloc();
+      if (pa == NULL) {
+        panic("kalloc");
+      }
+      int kstackidx = (p - proc) * NTH + (t - p->thr);
+      uint64 va = KSTACK(kstackidx);
+      kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+    }
+  }
+}
+
+/*
+proc table과 그 안의 thread 초기화.
+*/
+void
+procinit(void)
+{
+  struct proc *p;
+  struct thread *t;
+  
+  initlock(&pid_lock, "nextpid");
+  initlock(&wait_lock, "wait_lock");
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    initlock(&p->lock, "proc");
+    p->state = UNUSED;
+    
+    for (t = p->thr; t < &p->thr[NTH]; t++) {
+      initlock(&t->lock, "thread");
+      t->state = T_UNUSED;
+      int kstackidx = (p - proc) * NTH + (t - p->thr);
+      t->kstack = KSTACK(kstackidx);
+    }
+  }
+}
+#endif
 
 // Must be called with interrupts disabled,
 // to prevent race with process being moved
@@ -102,6 +153,7 @@ allocpid()
   return pid;
 }
 
+#ifndef SNU
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
@@ -171,6 +223,172 @@ freeproc(struct proc *p)
   p->state = UNUSED;
 }
 
+#else
+struct thread *
+mythread(void)
+{
+  push_off();
+  struct thread *t = mycpu()->thread;
+  pop_off();
+  return t;
+}
+
+/*
+proc 내의 비어 있는 thread를 찾아 초기화하고 lock 잡은 채로 반환.
+*/
+struct thread*
+allocthread(struct proc* p)
+{
+  int i;
+  struct thread *t;
+
+  for (i = 0; i < NTH; i++) {
+    t = p->thr + i;
+    acquire(&t->lock);
+    if (t->state == T_UNUSED) {
+      goto found;
+    } else {
+      release(&t->lock);
+    }
+  }
+  return NULL;
+
+found:
+  t->tid = p->pid * 100 + p->nexttid++;
+  t->state = T_USED;
+  
+  // trapframe 할당 (원래 allocproc에서 하던 것)
+  t->trapframe = (struct trapframe *)kalloc();
+  if (t->trapframe == NULL) {
+    freethread(t);
+    release(&t->lock);
+    return NULL;
+  }
+
+  // trapframe을 pagetable에 map (원래 proc_pagetable에서 하던 것)
+  if (maptrapframe(p->pagetable, t->trapframe, THRTRAPFRAME(i)) < 0) {
+    release(&t->lock);
+    return NULL;
+  }
+  t->trapframeva = THRTRAPFRAME(i);
+
+  // context 초기화
+  // 새 thread는 forkret에서 실행을 시작해 user space로 돌아감
+  memset(&t->context, 0, sizeof(t->context));
+  t->context.ra = (uint64)forkret;
+  t->context.sp = t->kstack + PGSIZE;
+
+  return t;
+}
+
+/*
+비어 있는 proc을 찾아 초기화하고 lock 잡은 채로 반환.
+첫 번째 thread의 lock도 잡혀 있는 상태.
+*/
+static struct proc*
+allocproc(void)
+{
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == UNUSED) {
+      goto found;
+    } else {
+      release(&p->lock);
+    }
+  }
+  return NULL;
+
+found:
+  p->pid = allocpid();
+  p->state = USED;
+
+  // An empty user page table.
+  p->pagetable = proc_pagetable(p);
+  if(p->pagetable == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // 첫 thread 생성
+  allocthread(p);
+
+  return p;
+}
+
+/*
+thread 하나의 trapframe 해제하고 정보 초기화.
+t->lock 잡은 채로 호출.
+*/
+void
+freethread(struct thread *t)
+{
+  if (t->state == T_UNUSED) {
+    return;   // 쓰이지 않은 thread이면 바로 return
+  }
+
+  t->tid = 0;
+  t->state = T_UNUSED;
+  t->chan = NULL;
+
+  if (t->trapframe) {
+    kfree((void *)t->trapframe);
+  }
+  t->trapframe = NULL;
+  t->trapframeva = 0;
+
+  t->next = NULL;
+}
+
+/*
+proc과 그 안에 있는 모든 thread 초기화.
+p->lock 잡은 채로 호출.
+t->lock은 잡지 않고 호출.
+*/
+static void
+freeproc(struct proc *p)
+{
+  struct thread *t;
+
+  // 모든 thread 해제
+  for (t = p->thr; t < &p->thr[NTH]; t++) {
+    acquire(&t->lock);
+    if (p->pagetable && t->trapframeva) {
+      // trapframe mapping 해제 (원래 proc_freepagetable에서 하던 것)
+      uvmunmap(p->pagetable, t->trapframeva, 1, FALSE);
+    }
+    freethread(t);
+    release(&t->lock);
+  }
+
+  if(p->pagetable) {
+    proc_freepagetable(p->pagetable, p->sz);
+  }
+  p->pagetable = 0;
+  p->sz = 0;
+  p->pid = 0;
+  p->parent = NULL;
+  p->name[0] = 0;
+  p->chan = NULL;
+  p->killed = 0;
+  p->xstate = 0;
+  p->state = UNUSED;
+}
+
+int
+maptrapframe(pagetable_t pagetable, struct trapframe *trapframe, uint64 va)
+{
+  int res = mappages(pagetable, va, PGSIZE, (uint64)trapframe, PTE_R | PTE_W);
+  if (res < 0) {
+    uvmunmap(pagetable, va, 1, FALSE);
+    uvmfree(pagetable, 1);
+  }
+  return res;
+}
+#endif
+
 // Create a user page table for a given process, with no user memory,
 // but with trampoline and trapframe pages.
 pagetable_t
@@ -193,6 +411,8 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
+  // trapframe mapping은 이제 allocthread에서 수행
+#ifndef SNU
   // map the trapframe page just below the trampoline page, for
   // trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
@@ -201,6 +421,7 @@ proc_pagetable(struct proc *p)
     uvmfree(pagetable, 0);
     return 0;
   }
+#endif
 
   return pagetable;
 }
@@ -211,7 +432,9 @@ void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+#ifndef SNU
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+#endif
   uvmfree(pagetable, sz);
 }
 
@@ -243,13 +466,28 @@ userinit(void)
   p->sz = PGSIZE;
 
   // prepare for the very first "return" from kernel to user.
+#ifndef SNU
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
+#else
+  struct thread *t = p->thr;
+  if (t->state != T_USED) {
+    panic("userinit: thread not initialized");
+  }
+
+  t->trapframe->epc = 0;
+  t->trapframe->sp = PGSIZE;
+#endif
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
+#ifndef SNU
   p->state = RUNNABLE;
+#else
+  t->state = T_RUNNABLE;
+  release(&t->lock);
+#endif
 
   release(&p->lock);
 }
@@ -274,6 +512,7 @@ growproc(int n)
   return 0;
 }
 
+#ifndef SNU
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 int
@@ -324,6 +563,64 @@ fork(void)
 
   return pid;
 }
+
+#else
+int
+fork(void)
+{
+  int i, pid;
+  struct proc *p = myproc();
+  struct thread *t = mythread();
+  struct proc *np;
+  struct thread *nt;
+  
+  if((np = allocproc()) == NULL){
+    return -1;
+  }
+  nt = np->thr;
+  if (nt->state != T_USED) {
+    panic("fork: thread not initialized");
+  }
+
+  // Copy user memory from parent to child.
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+    release(&nt->lock);
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+  np->sz = p->sz;
+
+  // copy saved user registers.
+  *(nt->trapframe) = *(t->trapframe);
+
+  // Cause fork to return 0 in the child.
+  nt->trapframe->a0 = 0;
+
+  // increment reference counts on open file descriptors.
+  for(i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
+      np->ofile[i] = filedup(p->ofile[i]);
+  np->cwd = idup(p->cwd);
+
+  safestrcpy(np->name, p->name, sizeof(p->name));
+
+  pid = np->pid;
+
+  release(&nt->lock);
+  release(&np->lock);
+
+  acquire(&wait_lock);
+  np->parent = p;
+  release(&wait_lock);
+
+  acquire(&nt->lock);
+  nt->state = T_RUNNABLE;
+  release(&nt->lock);
+
+  return pid;
+}
+#endif
 
 // Pass p's abandoned children to init.
 // Caller must hold wait_lock.
@@ -380,6 +677,24 @@ exit(int status)
 
   release(&wait_lock);
 
+#ifdef SNU
+  // thread가 더 이상 schedule 되지 않도록 zombie로 표시
+  struct thread *t = mythread();
+  struct thread *ot;
+
+  for (ot = p->thr; ot < &p->thr[NTH]; ot++) {
+    acquire(&ot->lock);
+    if (ot->state != T_UNUSED) {
+      ot->state = T_ZOMBIE;
+    }
+    if (ot != t) {
+      release(&ot->lock);   // 현재 thread의 lock은 해제하지 않음
+    }
+  }
+
+  release(&p->lock);
+#endif
+
   // Jump into the scheduler, never to return.
   sched();
   panic("zombie exit");
@@ -402,6 +717,7 @@ wait(uint64 addr)
     for(pp = proc; pp < &proc[NPROC]; pp++){
       if(pp->parent == p){
         // make sure the child isn't still in exit() or swtch().
+        // FIXME: thread의 lock을 잡아야 하나?
         acquire(&pp->lock);
 
         havekids = 1;
@@ -434,6 +750,7 @@ wait(uint64 addr)
   }
 }
 
+#ifndef SNU
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -509,6 +826,72 @@ yield(void)
   release(&p->lock);
 }
 
+#else
+void
+scheduler(void)
+{
+  struct proc *p;
+  struct thread *t;
+  struct cpu *c = mycpu();
+
+  c->proc = NULL;
+  c->thread = NULL;
+  while (1) {
+    intr_on();
+
+    for(p = proc; p < &proc[NPROC]; p++) {
+      for(t = p->thr; t < &p->thr[NTH]; t++) {
+        acquire(&t->lock);
+        if (t->state == T_RUNNABLE) {
+          t->state = T_RUNNING;
+          c->proc = p;
+          c->thread = t;
+          swtch(&c->context, &t->context);
+
+          c->proc = NULL;
+          c->thread = NULL;
+        }
+        release(&t->lock);
+      }
+    }
+  }
+}
+
+void
+sched(void)
+{
+  int intena;
+  struct thread *t = mythread();
+
+  if (!holding(&t->lock)) {
+    panic("sched t->lock");
+  }
+  if (mycpu()->noff != 1) {
+    panic("sched locks");
+  }
+  if (t->state == T_RUNNING) {
+    panic("sched running");
+  }
+  if (intr_get()) {
+    panic("sched interruptible");
+  }
+
+  intena = mycpu()->intena;
+  swtch(&t->context, &mycpu()->context);
+  mycpu()->intena = intena;
+}
+
+void
+yield(void)
+{
+  struct thread *t = mythread();
+  acquire(&t->lock);
+  t->state = T_RUNNABLE;
+  sched();
+  release(&t->lock);
+}
+#endif
+
 // A fork child's very first scheduling by scheduler()
 // will swtch to forkret.
 void
@@ -516,8 +899,12 @@ forkret(void)
 {
   static int first = 1;
 
+#ifndef SNU
   // Still holding p->lock from scheduler.
   release(&myproc()->lock);
+#else
+  release(&mythread()->lock);
+#endif
 
   if (first) {
     // File system initialization must be run in the context of a
@@ -530,6 +917,7 @@ forkret(void)
   usertrapret();
 }
 
+#ifndef SNU
 // Atomically release lock and sleep on chan.
 // Reacquires lock when awakened.
 void
@@ -579,6 +967,46 @@ wakeup(void *chan)
   }
 }
 
+#else
+void
+sleep(void *chan, struct spinlock *lk) {
+  struct thread *t = mythread();
+
+  acquire(&t->lock);
+  release(lk);
+
+  // Go to sleep
+  t->chan = chan;
+  t->state = T_SLEEPING;
+
+  sched();
+
+  // Tidy up
+  t->chan = NULL;
+
+  release(&t->lock);
+  acquire(lk);
+}
+
+void
+wakeup(void *chan) {
+  struct proc *p;
+  struct thread* t;
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    for (t = p->thr; t < &p->thr[NTH]; t++) {
+      if (t != mythread()) {
+        acquire(&t->lock);
+        if (t->state == T_SLEEPING && t->chan == chan) {
+          t->state = T_RUNNABLE;
+        }
+        release(&t->lock);
+      }
+    }
+  }
+}
+#endif
+
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
@@ -591,10 +1019,13 @@ kill(int pid)
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
+      // FIXME: thread에 대해서도 RUNNABLE 처리 해줘야 하나?
+      #ifndef SNU
       if(p->state == SLEEPING){
         // Wake process from sleep().
         p->state = RUNNABLE;
       }
+      #endif
       release(&p->lock);
       return 0;
     }
@@ -661,9 +1092,11 @@ procdump(void)
   static char *states[] = {
   [UNUSED]    "unused",
   [USED]      "used",
+#ifndef SNU
   [SLEEPING]  "sleep ",
   [RUNNABLE]  "runble",
   [RUNNING]   "run   ",
+#endif
   [ZOMBIE]    "zombie"
   };
   struct proc *p;
@@ -681,3 +1114,70 @@ procdump(void)
     printf("\n");
   }
 }
+
+#ifdef SNU
+void
+sema_init(struct sema *s, int count) {
+  initlock(&s->lock, "sema");
+  s->count = count;
+  s->queue = NULL;
+}
+
+void
+sema_wait(struct sema *s) {
+  struct thread* thr = mythread();
+
+  acquire(&s->lock);
+  s->count--;
+  if (s->count < 0) {
+    // queue에 thread 추가
+    thr->next = s->queue;
+    s->queue = thr;
+    // sleep
+    sleep(thr, &s->lock);
+  }
+  release(&s->lock);
+}
+
+void
+sema_signal(struct sema *s) {
+  struct thread *thr;
+
+  acquire(&s->lock);
+  s->count++;
+  if (s->count <= 0) {
+    if (s->queue == NULL) {
+      panic("sema_signal: queue is empty");
+    }
+    
+    // queue에서 thread 하나 꺼내서 깨움
+    thr = s->queue;
+    s->queue = thr->next;
+    thr->next = NULL;
+    wakeup(thr);
+  }
+  release(&s->lock);
+}
+
+void
+cond_init(struct cond *c) {
+  sema_init(&c->sema, 0);
+  c->count = 0;
+}
+
+void
+cond_wait(struct cond *c, struct sema *mutex) {
+  c->count++;
+  sema_signal(mutex);
+  sema_wait(&c->sema);
+  sema_wait(mutex);
+  c->count--;
+}
+
+void
+cond_signal(struct cond *c) {
+  if (c->count > 0) {
+    sema_signal(&c->sema);
+  }
+}
+#endif

@@ -21,6 +21,9 @@ struct context {
 // Per-CPU state.
 struct cpu {
   struct proc *proc;          // The process running on this cpu, or null.
+#ifdef SNU
+  struct thread *thread;      // The thread running on this cpu, or null.
+#endif
   struct context context;     // swtch() here to enter scheduler().
   int noff;                   // Depth of push_off() nesting.
   int intena;                 // Were interrupts enabled before push_off()?
@@ -79,16 +82,40 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
-enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
-
 #ifdef SNU
+struct sema {
+  struct spinlock lock;
+  int count;
+  struct thread *queue;
+};
+
+struct cond {
+  struct sema sema;
+  int count;
+};
+
+enum threadstate { T_UNUSED, T_USED, T_SLEEPING, T_RUNNABLE, T_RUNNING, T_ZOMBIE };
+
 // Per-thread state
 struct thread {
+  struct spinlock lock;
+
   int tid;
 
-  // PA5: Define any thread-specific fields here
+  enum threadstate state;
+  void *chan;
 
+  uint64 kstack;
+  uint64 trapframeva;
+  struct trapframe *trapframe;
+  struct context context;
+
+  struct thread *next;  // sema의 queue 구현을 위해 쓰임
 };
+
+enum procstate { UNUSED, USED, ZOMBIE };
+#else
+enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 #endif
 
 // Per-process state
@@ -106,16 +133,18 @@ struct proc {
   struct proc *parent;         // Parent process
 
   // these are private to the process, so p->lock need not be held.
-  uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // User page table
-  struct trapframe *trapframe; // data page for trampoline.S
-  struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-                               //
+
 #ifdef SNU
   struct thread thr[NTH];
+  int nexttid;
+#else
+  uint64 kstack;               // Virtual address of kernel stack
+  struct trapframe *trapframe; // data page for trampoline.S
+  struct context context;      // swtch() here to run process
 #endif
 };

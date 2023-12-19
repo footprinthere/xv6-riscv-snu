@@ -3,6 +3,12 @@ struct context;
 struct file;
 struct inode;
 struct pipe;
+#ifdef SNU
+struct sema;
+struct cond;
+struct thread;
+struct trapframe;
+#endif
 struct proc;
 struct spinlock;
 struct sleeplock;
@@ -107,6 +113,19 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 
+#ifdef SNU
+struct thread*  mythread(void);
+void            freethread(struct thread *t);
+int             maptrapframe(pagetable_t, struct trapframe *, uint64);
+
+void            sema_init(struct sema *, int);
+void            sema_wait(struct sema *);
+void            sema_signal(struct sema *);
+void            cond_init(struct cond *);
+void            cond_wait(struct cond *, struct sema *);
+void            cond_signal(struct cond *);
+#endif
+
 // swtch.S
 void            swtch(struct context*, struct context*);
 
@@ -187,3 +206,8 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+// literal constants
+#define NULL    ((void*)0)
+#define FALSE   0
+#define TRUE    1
