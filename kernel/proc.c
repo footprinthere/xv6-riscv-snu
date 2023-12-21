@@ -1188,6 +1188,9 @@ sthread_exit(int retval)
   for (waiter = p->thr; waiter < &p->thr[NTH]; waiter++) {
     acquire(&join_lock);
     if (waiter->chan == t) {
+      if (waiter->joined) {
+        panic("sthread_exit");
+      }
       waiter->retval = retval;
       waiter->joined = TRUE;
       wakeup(t);
@@ -1221,7 +1224,7 @@ sthread_exit(int retval)
 done:
   acquire(&t->lock);
   sched();
-  panic("sthread_exit");
+  panic("sthread_exit: zombie");
 }
 
 /*
