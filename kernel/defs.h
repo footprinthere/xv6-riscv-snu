@@ -117,7 +117,7 @@ struct thread*  findthread(int);
 void            freethread(struct thread *t);
 int             maptrapframe(pagetable_t, struct trapframe *, uint64);
 
-int             sthread_create(void (*)(), void *);
+int             sthread_create(uint64, uint64);
 void            sthread_exit(int);
 int             sthread_join(int, uint64);
 #endif

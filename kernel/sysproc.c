@@ -105,7 +105,7 @@ sys_sthread_create(void)
   argaddr(0, &func);
   argaddr(1, &arg);
 
-  uint64 tid = sthread_create((void (*)())func, (void *)arg);
+  uint64 tid = sthread_create(func, arg);
   return tid;
 }
 

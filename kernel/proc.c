@@ -1193,7 +1193,7 @@ procdump(void)
 성공 시 새로운 tid, 실패 시 -1 반환.
 */
 int
-sthread_create(void (*func)(), void *arg)
+sthread_create(uint64 func, uint64 arg)
 {
   struct proc *p = myproc();
   struct thread *nt = allocthread(p);
@@ -1203,8 +1203,8 @@ sthread_create(void (*func)(), void *arg)
   }
 
   // 함수 호출 설정
-  nt->trapframe->epc = (uint64)func;
-  nt->trapframe->a0 = (uint64)arg;
+  nt->trapframe->epc = func;
+  nt->trapframe->a0 = arg;
 
   // user stack 설정
   int newsz = uvmalloc(p->pagetable, p->sz, p->sz + 2*PGSIZE, PTE_W);
