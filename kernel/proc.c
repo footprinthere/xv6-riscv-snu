@@ -398,7 +398,8 @@ freeproc(struct proc *p)
   p->parent = NULL;
   p->name[0] = 0;
   p->chan = NULL;
-  p->killed = 0;
+  p->killed = FALSE;
+  p->exitting = FALSE;
   p->xstate = 0;
   p->nexttid = 0;
   p->state = UNUSED;
@@ -671,6 +672,22 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
+#ifdef SNU
+  struct thread *t = mythread();
+
+  // 이미 exit 중인 다른 thread가 있는지 검사
+  acquire(&p->lock);
+  int exitting = p->exitting;
+  p->exitting = TRUE;
+  release(&p->lock);
+
+  if (exitting) {
+    acquire(&t->lock);
+    t->state = T_ZOMBIE;
+    sched();
+    panic("zombie exit");
+  }
+#endif
 
   if(p == initproc)
     panic("init exiting");
@@ -706,7 +723,6 @@ exit(int status)
 
 #ifdef SNU
   // thread가 더 이상 schedule 되지 않도록 zombie로 표시
-  struct thread *t = mythread();
   struct thread *ot;
 
   for (ot = p->thr; ot < &p->thr[NTH]; ot++) {
@@ -994,6 +1010,30 @@ wakeup(void *chan)
   }
 }
 
+// Kill the process with the given pid.
+// The victim won't exit until it tries to return
+// to user space (see usertrap() in trap.c).
+int
+kill(int pid)
+{
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      p->killed = 1;
+      if(p->state == SLEEPING){
+        // Wake process from sleep().
+        p->state = RUNNABLE;
+      }
+      release(&p->lock);
+      return 0;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
 #else
 void
 sleep(void *chan, struct spinlock *lk) {
@@ -1034,25 +1074,31 @@ wakeup(void *chan) {
 }
 #endif
 
-// Kill the process with the given pid.
-// The victim won't exit until it tries to return
-// to user space (see usertrap() in trap.c).
 int
 kill(int pid)
 {
   struct proc *p;
+  struct thread *t;
 
   for(p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
-      // FIXME: thread에 대해서도 RUNNABLE 처리 해줘야 하나?
-      #ifndef SNU
-      if(p->state == SLEEPING){
-        // Wake process from sleep().
-        p->state = RUNNABLE;
+
+      // RUNNABLE 상태인 thread가 있도록 함
+      for (t = p->thr; t < &p->thr[NTH]; t++) {
+        acquire(&t->lock);
+        if (t->state == T_RUNNABLE) {
+          release(&t->lock);
+          break;
+        } else if (t->state == T_SLEEPING) {
+          t->state = T_RUNNABLE;
+          release(&t->lock);
+          break;
+        }
+        release(&t->lock);
       }
-      #endif
+
       release(&p->lock);
       return 0;
     }
@@ -1274,7 +1320,7 @@ sthread_join(int tid, uint64 retva)
 
   // 깨어난 후 retval 받아오기
   if (t->joined == FALSE) {
-    panic("sthread_join");
+    return -1;
   }
   if (retva != 0 && copyout(p->pagetable, retva, (char *)&t->retval, sizeof(t->retval)) < 0) {
     return -1;

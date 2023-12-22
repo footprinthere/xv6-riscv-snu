@@ -133,6 +133,8 @@ struct proc {
 #ifdef SNU
   struct thread thr[NTH];
   int nexttid;
+
+  int exitting;
 #else
   uint64 kstack;               // Virtual address of kernel stack
   struct trapframe *trapframe; // data page for trampoline.S
