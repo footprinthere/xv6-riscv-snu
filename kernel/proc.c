@@ -1231,8 +1231,8 @@ sthread_exit(int retval)
 
   // join 하는 thread에 retval 전달
   struct thread *waiter;
+  acquire(&join_lock);
   for (waiter = p->thr; waiter < &p->thr[NTH]; waiter++) {
-    acquire(&join_lock);
     if (waiter->chan == t) {
       if (waiter->joined) {
         panic("sthread_exit");
@@ -1240,11 +1240,10 @@ sthread_exit(int retval)
       waiter->retval = retval;
       waiter->joined = TRUE;
       wakeup(t);
-      release(&join_lock);
       break;
     }
-    release(&join_lock);
   }
+  release(&join_lock);
 
   // thread resource 해제 (freeproc에서 하는 것과 동일)
   acquire(&t->lock);
@@ -1308,9 +1307,9 @@ sthread_join(int tid, uint64 retva)
   }
 
   acquire(&join_lock);
-
   struct thread *target = findthread(tid);
   if (target == NULL) {
+    release(&join_lock);
     return -1;  // 존재하지 않는 thread
   }
 
