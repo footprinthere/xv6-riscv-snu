@@ -209,8 +209,6 @@ exec(char *path, char **argv)
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible as a stack guard.
   // Use the second as the user stack.
-  // FIXME: 첫 thread의 stack 위치는 같으니까 상관 없나?
-  //        다른 thread들의 stack은 이후에 thread_create 구현 시에 신경써야 함
   sz = PGROUNDUP(sz);
   uint64 sz1;
   if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE, PTE_W)) == 0)

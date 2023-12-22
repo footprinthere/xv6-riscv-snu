@@ -760,7 +760,6 @@ wait(uint64 addr)
     for(pp = proc; pp < &proc[NPROC]; pp++){
       if(pp->parent == p){
         // make sure the child isn't still in exit() or swtch().
-        // FIXME: thread의 lock을 잡아야 하나?
         acquire(&pp->lock);
 
         havekids = 1;
@@ -1271,24 +1270,6 @@ done:
   sched();
   panic("sthread_exit: zombie");
 }
-
-/*
-IDEA: retval 전달 어떻게?
-  - thread resource 해제 후에도 남아 있어야 함
-
-1안
-  - proc에 retval[NTH] 둬서
-  - exit하는 쪽이 자신의 threadno에 해당하는 slot에 tid와 retval 저장 후 cv에 signal
-  - join 하는 애가 없으면 signal이 그냥 lost 되고, 저장된 retval은 쓰레기가 됨
-  - join에서 wait 하던 애가 깨어나서 retval 받음
-  - 그 사이에 누가 overwrite 해버리면 어떡하지?
-
-2안
-  - join 하는 쪽은 target의 struct thread에 대고 sleep
-  - exit 할 때 자기에 대고 sleep 하는 애가 있는지 탐색
-  - 없으면 그냥 종료하면 되고
-  - 있으면 그 thread의 retval에 저장하고 깨움
-*/
 
 /*
 성공 시 0, 실패 시 -1 반환.
